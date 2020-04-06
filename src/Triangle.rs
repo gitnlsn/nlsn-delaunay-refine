@@ -1,13 +1,26 @@
 use crate::Continence::*;
 use crate::Orientation::*;
 use crate::Vertex::*;
+use std::cmp::Eq;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::Hash;
 use std::rc::Rc;
 
+#[derive(Hash)]
 pub struct Triangle {
     pub v1: Rc<Vertex>,
     pub v2: Rc<Vertex>,
     pub v3: Rc<Vertex>,
 }
+
+impl PartialEq for Triangle {
+    fn eq(&self, other: &Self) -> bool {
+        let mut hasher = DefaultHasher::new();
+        self.hash(&mut hasher) == other.hash(&mut hasher)
+    }
+}
+
+impl Eq for Triangle {}
 
 impl Triangle {
     pub fn new(v1: &Rc<Vertex>, v2: &Rc<Vertex>, v3: &Rc<Vertex>) -> Triangle {
@@ -19,25 +32,25 @@ impl Triangle {
     }
 
     pub fn is_ghost(&self) -> bool {
-        /* 
-            Although, all vertices are inspected, only v3 is supposed to hold the ghost vertex.
-            v1 and v2 are supposed to surround the convex hull in counterclockwise direction.
-         */
+        /*
+           Although, all vertices are inspected, only v3 is supposed to hold the ghost vertex.
+           v1 and v2 are supposed to surround the convex hull in counterclockwise direction.
+        */
         self.v1.is_ghost || self.v2.is_ghost || self.v3.is_ghost
     }
 
     pub fn encircles(&self, vertex: &Vertex) -> Continence {
         if !self.is_ghost() {
-            /* 
-                v1,v2,v3 are supposed to match counterclockwise, when created.
-             */
+            /*
+               v1,v2,v3 are supposed to match counterclockwise, when created.
+            */
             return in_circle(&self.v1, &self.v2, &self.v3, vertex);
         } else {
-            /* 
-                The set of ghost triangles surround the convex hull with solid edges
-                in counterclockwise direction. If v1-v1-trial matches clockwise, then trial 
-                should be outside.
-             */
+            /*
+               The set of ghost triangles surround the convex hull with solid edges
+               in counterclockwise direction. If v1-v1-trial matches clockwise, then trial
+               should be outside.
+            */
             match orient_2d(&self.v1, &self.v2, &vertex) {
                 Orientation::Clockwise => return Continence::Inside,
                 _ => return Continence::Outside,

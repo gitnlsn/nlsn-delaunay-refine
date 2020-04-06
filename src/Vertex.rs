@@ -1,4 +1,6 @@
+use std::collections::hash_map::DefaultHasher;
 use std::cmp::Ordering;
+use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
 pub struct Vertex {
@@ -6,6 +8,22 @@ pub struct Vertex {
     pub y: f64,
     pub is_ghost: bool,
 }
+
+impl Hash for Vertex {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let string = format!("{}, {}, {}", self.x, self.y, self.is_ghost);
+        string.hash(state);
+    }
+}
+
+impl PartialEq for Vertex {
+    fn eq(&self, other: &Self) -> bool {
+        let mut hasher = DefaultHasher::new();
+        self.hash(&mut hasher) == other.hash(&mut hasher)
+    }
+}
+
+impl Eq for Vertex {}
 
 impl Vertex {
     pub fn new(x: f64, y: f64) -> Vertex {
