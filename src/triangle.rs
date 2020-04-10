@@ -1,6 +1,8 @@
-use crate::Continence::*;
-use crate::Orientation::*;
-use crate::Vertex::*;
+use crate::continence::*;
+use crate::orientation::*;
+use crate::vertex::*;
+use nalgebra::Matrix3;
+
 use std::cmp::Eq;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hash;
@@ -37,6 +39,18 @@ impl Triangle {
            v1 and v2 are supposed to surround the convex hull in counterclockwise direction.
         */
         self.v1.is_ghost || self.v2.is_ghost || self.v3.is_ghost
+    }
+
+    pub fn area(&self) -> f64 {
+        if self.is_ghost() {
+            return 0.0;
+        }
+        let matrix = Matrix3::new(
+            self.v1.x, self.v1.y, 1.0, 
+            self.v2.x, self.v2.y, 1.0, 
+            self.v3.x, self.v3.y, 1.0,
+        );
+        return matrix.determinant() / 2.0;
     }
 
     pub fn encircles(&self, vertex: &Vertex) -> Continence {
@@ -112,7 +126,7 @@ mod structure {
     use super::*;
 
     #[test]
-    fn test_two_triangles_with_same_vertices() {
+    fn test_allows_two_triangles_with_same_vertices() {
         let v1 = Rc::new(Vertex::new(0.0, 0.0));
         let v2 = Rc::new(Vertex::new(2.0, 0.0));
         let v3 = Rc::new(Vertex::new(0.0, 2.0));
@@ -142,5 +156,28 @@ mod encircles {
 
         let v4 = Rc::new(Vertex::new(1.0, 1.0));
         assert_eq!(t1.encircles(&v4), Continence::Boundary);
+    }
+}
+
+#[cfg(test)]
+mod area {
+    use super::*;
+
+    #[test]
+    fn test_area() {
+        let v1 = Rc::new(Vertex::new(0.0, 0.0));
+        let v2 = Rc::new(Vertex::new(1.0, 0.0));
+        let v3 = Rc::new(Vertex::new(0.0, 1.0));
+        let t1 = Triangle::new(&v1, &v2, &v3);
+        assert_eq!(t1.area(), 0.5);
+    }
+    
+    #[test]
+    fn test_area_ghost_triangle() {
+        let v1 = Rc::new(Vertex::new(0.0, 0.0));
+        let v2 = Rc::new(Vertex::new(1.0, 0.0));
+        let v3 = Rc::new(Vertex::new_ghost());
+        let t1 = Triangle::new(&v1, &v2, &v3);
+        assert_eq!(t1.area(), 0.0);
     }
 }

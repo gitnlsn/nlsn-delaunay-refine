@@ -1,5 +1,5 @@
 extern crate nalgebra;
-use crate::Vertex::*;
+use crate::vertex::*;
 
 use nalgebra::Matrix3;
 

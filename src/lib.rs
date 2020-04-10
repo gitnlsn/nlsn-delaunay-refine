@@ -1,5 +1,6 @@
-mod Vertex;
-mod Triangle;
-mod Orientation;
-mod Continence;
+mod vertex;
+mod orientation;
+mod continence;
 
+mod triangle;
+mod triangulationBuilder;
