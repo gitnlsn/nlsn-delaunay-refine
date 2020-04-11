@@ -1,9 +1,10 @@
-use std::collections::hash_map::DefaultHasher;
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
+use std::fmt;
 
 pub struct Vertex {
+    id: usize,
     pub x: f64,
     pub y: f64,
     pub is_ghost: bool,
@@ -11,31 +12,42 @@ pub struct Vertex {
 
 impl Hash for Vertex {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        let string = format!("{}, {}, {}", self.x, self.y, self.is_ghost);
-        string.hash(state);
+        self.id.hash(state);
     }
 }
 
 impl PartialEq for Vertex {
     fn eq(&self, other: &Self) -> bool {
-        let mut hasher = DefaultHasher::new();
-        self.hash(&mut hasher) == other.hash(&mut hasher)
+        self.x == other.x 
+        &&
+        self.y == other.y
     }
 }
 
 impl Eq for Vertex {}
 
+impl fmt::Display for Vertex {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.is_ghost {
+            return write!(f, "(ghost)");
+        }
+        return write!(f, "({}, {})", self.x, self.y);
+    }
+}
+
 impl Vertex {
-    pub fn new(x: f64, y: f64) -> Vertex {
-        Vertex {
+    pub fn new(id: usize, x: f64, y: f64) -> Self {
+        Self {
+            id: id,
             x: x,
             y: y,
             is_ghost: false,
         }
     }
 
-    pub fn new_ghost() -> Vertex {
+    pub fn new_ghost(id: usize) -> Vertex {
         Vertex {
+            id: id,
             x: 0.0,
             y: 0.0,
             is_ghost: true,
@@ -55,7 +67,7 @@ impl Vertex {
             let x = raw_array.get(index * 2).unwrap();
             let y = raw_array.get(index * 2 + 1).unwrap();
 
-            let new_vertex = Vertex::new(*x, *y);
+            let new_vertex = Vertex::new(index as usize, *x, *y);
             vertex_list.push(Rc::new(new_vertex));
         }
 
@@ -76,10 +88,10 @@ mod ghost_vertex {
 
     #[test]
     fn test_ghost_property_is_bool() {
-        let v = Vertex::new_ghost();
+        let v = Vertex::new_ghost(0);
         assert!(v.is_ghost);
 
-        let v = Vertex::new(0.0, 0.0);
+        let v = Vertex::new(0, 0.0, 0.0);
         assert!(!v.is_ghost);
     }
 }
@@ -134,6 +146,6 @@ mod build_from_coordinates {
         raw_array.push(1.0);
         raw_array.push(2.0);
 
-        let vertex_list = Vertex::from_coordinates(raw_array);
+        Vertex::from_coordinates(raw_array);
     }
 }

@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::mem;
 use std::rc::Rc;
+use std::fmt;
 
 /* Triangulator will build the triangulation by inserting triangles 
 and removing vertices.
@@ -29,6 +30,25 @@ pub struct Triangulator {
     adjacency: HashMap<(Rc<Vertex>, Rc<Vertex>), Rc<Vertex>>
 }
 
+impl fmt::Display for Triangulator {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Vertices\n");
+        for vertex in self.vertices.iter() {
+            write!(f, "{}\n", vertex);
+        }
+        write!(f, "\nTriangles\n");
+        for triangle in self.triangles.iter() {
+            write!(f, "{}\n", triangle);
+        }
+        write!(f, "\nConflicts\n");
+        for (triangle, vertex) in self.conflict_map.iter() {
+            write!(f, "{} -> {}\n", triangle, vertex);
+        }
+        
+        return write!(f, "");
+    }
+}
+
 impl Triangulator {
     /*
        TODO:
@@ -45,11 +65,11 @@ impl Triangulator {
     }
 
     fn init(&mut self) {
-        let ghost_vertex = Rc::new(Vertex::new_ghost());
+        let ghost_vertex = Rc::new(Vertex::new_ghost(self.vertices.len()));
 
-        let mut v1 = self.vertices.pop().unwrap();
-        let mut v2 = self.vertices.pop().unwrap();
         let mut v3 = self.vertices.pop().unwrap();
+        let mut v2 = self.vertices.pop().unwrap();
+        let mut v1 = self.vertices.pop().unwrap();
 
         /* Loops until 3 non colinear vertices are found */
         loop {
@@ -58,7 +78,7 @@ impl Triangulator {
                     break;
                 }
                 Orientation::Clockwise => {
-                    mem::swap(&mut v2, &mut v3);
+//                    mem::swap(&mut v2, &mut v3);
                     break;
                 }
                 Orientation::Colinear => {
@@ -80,7 +100,7 @@ impl Triangulator {
     }
 
     fn handle_conflict(&mut self) {
-        let (triangle, vertex) = self.conflict_map.pop().unwrap();
+//        let (triangle, vertex) = self.conflict_map.pop().unwrap();
 
     }
 
@@ -125,6 +145,7 @@ mod constructor {
         vertex_indices.push(1.0); vertex_indices.push(2.0);
         let mut builder = Triangulator::from_vertices(vertex_indices);
         builder.init();
+        println!("{}", builder);
         assert_eq!(builder.vertices.len(), 0);
         assert_eq!(builder.triangles.len(), 4);
     }
@@ -138,6 +159,7 @@ mod constructor {
         vertex_indices.push(1.0); vertex_indices.push(1.0);
         let mut builder = Triangulator::from_vertices(vertex_indices);
         builder.init();
+        println!("{}", builder);
         assert_eq!(builder.vertices.len(), 0);
         assert_eq!(builder.triangles.len(), 3);
         assert_eq!(builder.conflict_map.len(), 1);

@@ -39,28 +39,28 @@ mod in_circle {
 
     #[test]
     fn test_continence_inside() {
-        let p1 = Vertex::new(0.0, 0.0);
-        let p2 = Vertex::new(1.0, 0.0);
-        let p3 = Vertex::new(1.0, 1.0);
-        let p4 = Vertex::new(0.6, 0.5);
+        let p1 = Vertex::new(0, 0.0, 0.0);
+        let p2 = Vertex::new(1, 1.0, 0.0);
+        let p3 = Vertex::new(2, 1.0, 1.0);
+        let p4 = Vertex::new(3, 0.6, 0.5);
         assert_eq!(in_circle(&p1, &p2, &p3, &p4), Continence::Inside);
     }
     
     #[test]
     fn test_continence_outside() {
-        let p1 = Vertex::new(0.0, 0.0);
-        let p2 = Vertex::new(1.0, 0.0);
-        let p3 = Vertex::new(1.0, 1.0);
-        let p4 = Vertex::new(0.0, 2.0);
+        let p1 = Vertex::new(0, 0.0, 0.0);
+        let p2 = Vertex::new(1, 1.0, 0.0);
+        let p3 = Vertex::new(2, 1.0, 1.0);
+        let p4 = Vertex::new(3, 0.0, 2.0);
         assert_eq!(in_circle(&p1, &p2, &p3, &p4), Continence::Outside);
     }
     
     #[test]
     fn test_continence_boundary() {
-        let p1 = Vertex::new(0.0, 0.0);
-        let p2 = Vertex::new(1.0, 0.0);
-        let p3 = Vertex::new(1.0, 1.0);
-        let p4 = Vertex::new(0.0, 1.0);
+        let p1 = Vertex::new(0, 0.0, 0.0);
+        let p2 = Vertex::new(1, 1.0, 0.0);
+        let p3 = Vertex::new(2, 1.0, 1.0);
+        let p4 = Vertex::new(3, 0.0, 1.0);
         assert_eq!(in_circle(&p1, &p2, &p3, &p4), Continence::Boundary);
     }
 }
