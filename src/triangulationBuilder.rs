@@ -25,7 +25,8 @@ inside the circuncircle of the triangle.  */
 pub struct Triangulator {
     vertices: Vec<Rc<Vertex>>,
     triangles: HashSet<Triangle>,
-    conflict_map: HashMap<Triangle, Rc<Vertex>>,
+    conflict_map: Vec<(Triangle, Rc<Vertex>)>,
+    adjacency: HashMap<(Rc<Vertex>, Rc<Vertex>), Rc<Vertex>>
 }
 
 impl Triangulator {
@@ -38,7 +39,8 @@ impl Triangulator {
         Triangulator {
             vertices: Vertex::from_coordinates(vertices_coordinates),
             triangles: HashSet::new(),
-            conflict_map: HashMap::new(),
+            conflict_map: Vec::new(),
+            adjacency: HashMap::new(),
         }
     }
 
@@ -71,22 +73,25 @@ impl Triangulator {
         let tghost_2 = Triangle::new(&v2, &v3, &ghost_vertex);
         let tghost_3 = Triangle::new(&v3, &v1, &ghost_vertex);
 
-        self.insert_triangle(solid_triangle);
-        self.insert_triangle(tghost_1);
-        self.insert_triangle(tghost_2);
-        self.insert_triangle(tghost_3);
+        self.handle_triangle(solid_triangle);
+        self.handle_triangle(tghost_1);
+        self.handle_triangle(tghost_2);
+        self.handle_triangle(tghost_3);
     }
 
-    fn handle_next_vertex(&mut self) {}
+    fn handle_conflict(&mut self) {
+        let (triangle, vertex) = self.conflict_map.pop().unwrap();
 
-    fn insert_triangle(&mut self, triangle: Triangle) {
+    }
+
+    fn handle_triangle(&mut self, triangle: Triangle) {
         match self.vertices.iter().position(|vertex| {
             /* searchs for conflicting vertex */
             triangle.encircles(vertex) == Continence::Inside
         }) {
             Some(index) => {
                 let conflicting_vertex = self.vertices.remove(index);
-                self.conflict_map.insert(triangle, conflicting_vertex);
+                self.conflict_map.push((triangle, conflicting_vertex));
             }
             None => {
                 self.triangles.insert(triangle);
@@ -113,17 +118,28 @@ mod constructor {
     }
 
     #[test]
-    fn test_init() {
+    fn test_init_single_triangle() {
         let mut vertex_indices = Vec::new();
-        vertex_indices.push(0.0);
-        vertex_indices.push(0.0);
-        vertex_indices.push(2.0);
-        vertex_indices.push(0.0);
-        vertex_indices.push(1.0);
-        vertex_indices.push(2.0);
+        vertex_indices.push(0.0); vertex_indices.push(0.0);
+        vertex_indices.push(2.0); vertex_indices.push(0.0);
+        vertex_indices.push(1.0); vertex_indices.push(2.0);
         let mut builder = Triangulator::from_vertices(vertex_indices);
         builder.init();
         assert_eq!(builder.vertices.len(), 0);
         assert_eq!(builder.triangles.len(), 4);
+    }
+
+    #[test]
+    fn test_init_triangle_with_conflict() {
+        let mut vertex_indices = Vec::new();
+        vertex_indices.push(0.0); vertex_indices.push(0.0);
+        vertex_indices.push(2.0); vertex_indices.push(0.0);
+        vertex_indices.push(1.0); vertex_indices.push(2.0);
+        vertex_indices.push(1.0); vertex_indices.push(1.0);
+        let mut builder = Triangulator::from_vertices(vertex_indices);
+        builder.init();
+        assert_eq!(builder.vertices.len(), 0);
+        assert_eq!(builder.triangles.len(), 3);
+        assert_eq!(builder.conflict_map.len(), 1);
     }
 }
