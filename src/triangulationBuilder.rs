@@ -44,6 +44,10 @@ impl fmt::Display for Triangulator {
         for (triangle, vertex) in self.conflict_map.iter() {
             write!(f, "{} -> {}\n", triangle, vertex);
         }
+        write!(f, "\nAdjacency\n");
+        for ((v1, v2), triangle) in self.adjacency.iter() {
+            write!(f, "({}, {}) -> {}\n", v1, v2, triangle);
+        }
 
         return write!(f, "");
     }
@@ -61,6 +65,18 @@ impl Triangulator {
             triangles: HashSet::new(),
             conflict_map: HashMap::new(),
             adjacency: HashMap::new(),
+        }
+    }
+
+    pub fn triangulate(&mut self) {
+        let should_init = self.triangles.len() + self.conflict_map.len() == 0;
+
+        if should_init {
+            self.init();
+        }
+        while self.conflict_map.len() > 0 {
+            println!("{}", self);
+            self.handle_conflict();
         }
     }
 
@@ -89,9 +105,9 @@ impl Triangulator {
         } /* end - loop */
 
         let solid_triangle = Rc::new(Triangle::new(&v1, &v2, &v3));
-        let tghost_1 = Rc::new(Triangle::new(&v1, &v2, &ghost_vertex));
-        let tghost_2 = Rc::new(Triangle::new(&v2, &v3, &ghost_vertex));
-        let tghost_3 = Rc::new(Triangle::new(&v3, &v1, &ghost_vertex));
+        let tghost_1 = Rc::new(Triangle::new(&v2, &v1, &ghost_vertex));
+        let tghost_2 = Rc::new(Triangle::new(&v3, &v2, &ghost_vertex));
+        let tghost_3 = Rc::new(Triangle::new(&v1, &v3, &ghost_vertex));
 
         self.include_triangle(&solid_triangle);
         self.include_triangle(&tghost_1);
@@ -154,9 +170,8 @@ impl Triangulator {
                     pending_cavities.push((Rc::clone(outer_v3), Rc::clone(outer_v1)));
                     pending_cavities.push((Rc::clone(outer_v1), Rc::clone(outer_v2)));
                 }
-            
             } else {
-                /* Includes new triangles */
+                /* Includes new triangle */
                 if v_begin.is_ghost {
                     let new_triangle = Rc::new(Triangle::new(&v_end, &vertex_to_insert, &v_begin));
                     self.include_triangle(&new_triangle);
@@ -231,27 +246,20 @@ mod constructor {
 
     #[test]
     fn test_constructor() {
-        let mut vertex_indices = Vec::new();
-        vertex_indices.push(0.0);
-        vertex_indices.push(0.0);
-        vertex_indices.push(2.0);
-        vertex_indices.push(0.0);
-        vertex_indices.push(1.0);
-        vertex_indices.push(2.0);
+        let mut vertex_indices = vec![0.0, 0.0, 2.0, 0.0, 1.0, 2.0];
         let builder = Triangulator::from_vertices(vertex_indices);
         println!("{}", builder);
         assert_eq!(builder.vertices.len(), 3);
     }
+}
+
+#[cfg(test)]
+mod init {
+    use super::*;
 
     #[test]
     fn test_init_single_triangle() {
-        let mut vertex_indices = Vec::new();
-        vertex_indices.push(0.0);
-        vertex_indices.push(0.0);
-        vertex_indices.push(2.0);
-        vertex_indices.push(0.0);
-        vertex_indices.push(1.0);
-        vertex_indices.push(2.0);
+        let mut vertex_indices = vec![0.0, 0.0, 2.0, 0.0, 1.0, 2.0];
         let mut builder = Triangulator::from_vertices(vertex_indices);
         builder.init();
         println!("{}", builder);
@@ -261,19 +269,27 @@ mod constructor {
 
     #[test]
     fn test_init_triangle_with_conflict() {
-        let mut vertex_indices = Vec::new();
-        vertex_indices.push(0.0);
-        vertex_indices.push(0.0);
-        vertex_indices.push(2.0);
-        vertex_indices.push(0.0);
-        vertex_indices.push(1.0);
-        vertex_indices.push(2.0);
-        vertex_indices.push(1.0);
-        vertex_indices.push(1.0);
+        let mut vertex_indices = vec![0.0, 0.0, 2.0, 0.0, 1.0, 2.0, 1.0, 1.0];
         let mut builder = Triangulator::from_vertices(vertex_indices);
         builder.init();
         println!("{}", builder);
         assert_eq!(builder.vertices.len(), 0);
         assert_eq!(builder.triangles.len() + builder.conflict_map.len(), 4);
+    }
+}
+
+#[cfg(test)]
+mod triangulate {
+    use super::*;
+
+    #[test]
+    fn test_triangulate_4_vertices() {
+        let mut vertex_indices = vec![0.0, 0.0, 2.0, 0.0, 1.0, 2.0, 1.0, 1.0];
+        let mut builder = Triangulator::from_vertices(vertex_indices);
+        builder.triangulate();
+        println!("{}", builder);
+        assert_eq!(builder.vertices.len(), 0);
+        assert_eq!(builder.triangles.len(), 6);
+        assert_eq!(builder.conflict_map.len(), 0);
     }
 }
