@@ -26,7 +26,7 @@ inside the circuncircle of the triangle.  */
 pub struct Triangulator {
     vertices: Vec<Rc<Vertex>>,
     triangles: HashSet<Rc<Triangle>>,
-    conflict_map: HashMap<Rc<Triangle>, Rc<Vertex>>,
+    conflict_map: Vec<(Rc<Triangle>, Rc<Vertex>)>,
     adjacency: HashMap<(Rc<Vertex>, Rc<Vertex>), Rc<Triangle>>
 }
 
@@ -59,7 +59,7 @@ impl Triangulator {
         Triangulator {
             vertices: Vertex::from_coordinates(vertices_coordinates),
             triangles: HashSet::new(),
-            conflict_map: HashMap::new(),
+            conflict_map: Vec::new(),
             adjacency: HashMap::new(),
         }
     }
@@ -93,11 +93,6 @@ impl Triangulator {
         let tghost_2 = Rc::new(Triangle::new(&v2, &v3, &ghost_vertex));
         let tghost_3 = Rc::new(Triangle::new(&v3, &v1, &ghost_vertex));
 
-        self.include_inner_adjacency(&solid_triangle);
-        self.include_inner_adjacency(&tghost_1);
-        self.include_inner_adjacency(&tghost_2);
-        self.include_inner_adjacency(&tghost_3);
-        
         self.include_triangle(solid_triangle);
         self.include_triangle(tghost_1);
         self.include_triangle(tghost_2);
@@ -105,18 +100,63 @@ impl Triangulator {
     }
     
     fn handle_conflict(&mut self) {
-//        let (triangle, vertex) = self.conflict_map.pop().unwrap();
+        let (triangle, vertex_to_insert) = self.conflict_map.pop().unwrap();
+        self.remove_inner_adjacency(&triangle);
 
+        let v1 = &triangle.v1;
+        let v2 = &triangle.v2;
+        let v3 = &triangle.v3;
+
+        let mut pending_cavities: Vec<(Rc<Vertex>, Rc<Vertex>)> = vec![
+            (Rc::clone(v1),Rc::clone(v2)),
+            (Rc::clone(v2),Rc::clone(v3)),
+            (Rc::clone(v3),Rc::clone(v1)),
+        ];
+
+        loop {
+            let (v_begin, v_end) = pending_cavities.pop().unwrap();
+
+            // adjacent triangle is met by opposite half edge: end -> begin
+            let outer_triangle = self.adjacency.remove(&(Rc::clone(&v_end), Rc::clone(&v_begin))).unwrap();
+
+            if outer_triangle.encircles(&vertex_to_insert) == Continence::Inside {
+                self.remove_inner_adjacency(&outer_triangle);
+                let outer_v1 = &outer_triangle.v1;
+                let outer_v2 = &outer_triangle.v2;
+                let outer_v3 = &outer_triangle.v3;
+
+                if *outer_v1 == v_begin {
+                    pending_cavities.push((Rc::clone(outer_v1), Rc::clone(outer_v2)));
+                    pending_cavities.push((Rc::clone(outer_v2), Rc::clone(outer_v3)));
+                } else if *outer_v2 == v_begin {
+                    pending_cavities.push((Rc::clone(outer_v2), Rc::clone(outer_v3)));
+                    pending_cavities.push((Rc::clone(outer_v3), Rc::clone(outer_v1)));
+                } else {
+                    pending_cavities.push((Rc::clone(outer_v3), Rc::clone(outer_v1)));
+                    pending_cavities.push((Rc::clone(outer_v1), Rc::clone(outer_v2)));
+                }
+                continue;
+            } else {
+                self.adjacency.insert((Rc::clone(&v_end), Rc::clone(&v_begin)), Rc::clone(&outer_triangle));
+                let new_triangle = Rc::new(Triangle::new(&v_begin, &v_end, &vertex_to_insert));
+                self.include_triangle(new_triangle);
+            }
+            
+            if pending_cavities.is_empty() {
+                break;
+            }
+        };
     }
 
     fn include_triangle(&mut self, triangle: Rc<Triangle>) {
+        self.include_inner_adjacency(&triangle);
         match self.vertices.iter().position(|vertex| {
             /* searchs for conflicting vertex */
             triangle.encircles(vertex) == Continence::Inside
         }) {
             Some(index) => {
                 let conflicting_vertex = self.vertices.remove(index);
-                self.conflict_map.insert(triangle, conflicting_vertex);
+                self.conflict_map.push((triangle, conflicting_vertex));
             }
             None => {
                 self.triangles.insert(triangle);
@@ -131,6 +171,15 @@ impl Triangulator {
         self.adjacency.insert((Rc::clone(v1),Rc::clone(v2)), Rc::clone(triangle));
         self.adjacency.insert((Rc::clone(v2),Rc::clone(v3)), Rc::clone(triangle));
         self.adjacency.insert((Rc::clone(v3),Rc::clone(v1)), Rc::clone(triangle));
+    }
+
+    fn remove_inner_adjacency(&mut self, triangle: &Rc<Triangle>) {
+        let v1 = &triangle.v1;
+        let v2 = &triangle.v2;
+        let v3 = &triangle.v3;
+        self.adjacency.remove(&(Rc::clone(v1),Rc::clone(v2)));
+        self.adjacency.remove(&(Rc::clone(v2),Rc::clone(v3)));
+        self.adjacency.remove(&(Rc::clone(v3),Rc::clone(v1)));
     }
 }
 
