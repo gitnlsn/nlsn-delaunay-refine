@@ -14,7 +14,8 @@ The choice for `Rust` is due to its portability in sereral rust contexts and its
 
 # Task List
 
-    * [ ] 2D Delaunay Triangulation
+    * [x] 2D Delaunay Triangulation
+    * [ ] publishing release to crates.io
     * [ ] 2D Delaunay Refinement
 
     * [ ] 3D Delaunay Triangulation
