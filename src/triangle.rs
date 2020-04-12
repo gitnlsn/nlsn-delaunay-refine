@@ -70,11 +70,11 @@ impl Triangle {
         } else {
             /*
                The set of ghost triangles surround the convex hull with solid edges
-               in counterclockwise direction. If v1-v1-trial matches clockwise, then trial
-               should be outside.
+               in counterclockwise direction. The first two vertices have the outer
+               space in counterclockwise direction, as the ghost is always outside.
             */
             match orient_2d(&self.v1, &self.v2, &vertex) {
-                Orientation::Clockwise => return Continence::Inside,
+                Orientation::Counterclockwise => return Continence::Inside,
                 _ => return Continence::Outside,
             }
         }
