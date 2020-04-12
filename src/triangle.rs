@@ -4,9 +4,9 @@ use crate::vertex::*;
 use nalgebra::Matrix3;
 
 use std::cmp::Eq;
+use std::fmt;
 use std::hash::Hash;
 use std::rc::Rc;
-use std::fmt;
 
 #[derive(Hash)]
 pub struct Triangle {
@@ -17,10 +17,7 @@ pub struct Triangle {
 
 impl PartialEq for Triangle {
     fn eq(&self, other: &Self) -> bool {
-        self.v1 == other.v1
-&&         self.v2 == other.v2
-         && 
-        self.v3 == other.v3
+        self.v1 == other.v1 && self.v2 == other.v2 && self.v3 == other.v3
     }
 }
 
@@ -31,7 +28,7 @@ impl fmt::Display for Triangle {
         return write!(f, "({} - {} - {})", self.v1, self.v2, self.v3);
     }
 }
-                                            
+
 impl Triangle {
     pub fn new(v1: &Rc<Vertex>, v2: &Rc<Vertex>, v3: &Rc<Vertex>) -> Triangle {
         Triangle {
@@ -54,9 +51,7 @@ impl Triangle {
             return 0.0;
         }
         let matrix = Matrix3::new(
-            self.v1.x, self.v1.y, 1.0, 
-            self.v2.x, self.v2.y, 1.0, 
-            self.v3.x, self.v3.y, 1.0,
+            self.v1.x, self.v1.y, 1.0, self.v2.x, self.v2.y, 1.0, self.v3.x, self.v3.y, 1.0,
         );
         return matrix.determinant() / 2.0;
     }
@@ -179,7 +174,7 @@ mod area {
         let t1 = Triangle::new(&v1, &v2, &v3);
         assert_eq!(t1.area(), 0.5);
     }
-    
+
     #[test]
     fn test_area_ghost_triangle() {
         let v1 = Rc::new(Vertex::new(0, 0.0, 0.0));

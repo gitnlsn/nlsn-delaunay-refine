@@ -1,10 +1,10 @@
 use std::cmp::Ordering;
+use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
-use std::fmt;
 
 pub struct Vertex {
-    id: usize,
+    pub id: usize,
     pub x: f64,
     pub y: f64,
     pub is_ghost: bool,
@@ -18,9 +18,19 @@ impl Hash for Vertex {
 
 impl PartialEq for Vertex {
     fn eq(&self, other: &Self) -> bool {
-        self.x == other.x 
-        &&
-        self.y == other.y
+        self.x == other.x && self.y == other.y
+    }
+}
+
+impl Ord for Vertex {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.id.cmp(&other.id)
+    }
+}
+
+impl PartialOrd for Vertex {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(&other))
     }
 }
 
