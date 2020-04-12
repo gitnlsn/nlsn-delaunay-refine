@@ -1,14 +1,19 @@
 # Rust Delaunay Triangulation
 
 <html>
-<img src="https://img.shields.io/github/tag/expressjs/express.svg" />
+<p>
 
-<img src="https://img.shields.io/github/languages/top/badges/shields.svg" />
+<img src="https://img.shields.io/badge/language-rust-blue.svg" />
 
-<img src="https://img.shields.io/github/issues/badges/shields.svg" />
+<img src="https://img.shields.io/github/issues/nelsonatgithub/nlsn-delaunay-refine" />
 
 <img src="https://img.shields.io/github/license/mashape/apistatus.svg" />
 
+<img src="https://img.shields.io/github/stars/nelsonatgithub/nlsn-delaunay-refine" />
+
+<img src="https://img.shields.io/github/forks/nelsonatgithub/nlsn-delaunay-refine" />
+
+</p>
 </html>
 
 # Description
