@@ -1,7 +1,6 @@
-# Rust Delaunay Triangulation
-
 <html>
-<p>
+<h1 align="center">Rust Delaunay Triangulation</h1>
+<p align="center" >
 
 <img src="https://img.shields.io/badge/language-rust-blue.svg" />
 
