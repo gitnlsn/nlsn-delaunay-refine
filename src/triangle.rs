@@ -41,7 +41,8 @@ impl Triangle {
     pub fn is_ghost(&self) -> bool {
         /*
            Although, all vertices are inspected, only v3 is supposed to hold the ghost vertex.
-           v1 and v2 are supposed to surround the convex hull in counterclockwise direction.
+           v1 and v2 are supposed to surround the convex hull in clockwise direction and ghost
+           vertex is always outside.
         */
         self.v1.is_ghost || self.v2.is_ghost || self.v3.is_ghost
     }
@@ -59,7 +60,7 @@ impl Triangle {
     pub fn encircles(&self, vertex: &Vertex) -> Continence {
         if !self.is_ghost() {
             /*
-               v1,v2,v3 are supposed to match counterclockwise, when created.
+               v1, v2, v3 are supposed to match counterclockwise, when created.
             */
             return in_circle(&self.v1, &self.v2, &self.v3, vertex);
         } else {
@@ -81,7 +82,7 @@ mod constructor {
     use super::*;
 
     #[test]
-    fn test_always_create_in_counterclockwise() {
+    fn test_new_triangle() {
         let v1 = Rc::new(Vertex::new(0, 0.0, 1.0));
         let v2 = Rc::new(Vertex::new(1, 2.0, 3.0));
         let v3 = Rc::new(Vertex::new(2, 4.0, 7.0));
@@ -176,7 +177,7 @@ mod area {
     }
 
     #[test]
-    fn test_area_ghost_triangle() {
+    fn test_ghost_triangle_area_is_zero() {
         let v1 = Rc::new(Vertex::new(0, 0.0, 0.0));
         let v2 = Rc::new(Vertex::new(1, 1.0, 0.0));
         let v3 = Rc::new(Vertex::new_ghost(2));
