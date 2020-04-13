@@ -38,6 +38,10 @@ The choice for `Rust` is due to its portability in sereral rust contexts and its
     - [ ] 3D Delaunay Triangulation
     - [ ] 3D Delaunay Refinement
 
+# API
+
+> In progress
+
 # Development
 
 This repository is build with Rust and Cargo.
