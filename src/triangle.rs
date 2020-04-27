@@ -18,6 +18,8 @@ pub struct Triangle {
 impl PartialEq for Triangle {
     fn eq(&self, other: &Self) -> bool {
         self.v1 == other.v1 && self.v2 == other.v2 && self.v3 == other.v3
+            || self.v1 == other.v2 && self.v2 == other.v3 && self.v3 == other.v1
+            || self.v1 == other.v3 && self.v2 == other.v1 && self.v3 == other.v2
     }
 }
 
