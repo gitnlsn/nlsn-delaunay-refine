@@ -112,14 +112,7 @@ mod build_from_coordinates {
 
     #[test]
     fn test_builds_all_vertices() {
-        let mut raw_array = Vec::new();
-
-        raw_array.push(0.0);
-        raw_array.push(1.0);
-        raw_array.push(4.0);
-        raw_array.push(5.0);
-        raw_array.push(2.0);
-        raw_array.push(3.0);
+        let raw_array = vec![0.0, 1.0, 4.0, 5.0, 2.0, 3.0];
 
         let mut vertex_list = Vertex::from_coordinates(raw_array);
 
@@ -146,16 +139,7 @@ mod build_from_coordinates {
     #[test]
     #[should_panic]
     fn test_dont_accept_wrong_size_array() {
-        let mut raw_array = Vec::new();
-
-        raw_array.push(0.0);
-        raw_array.push(0.0);
-        raw_array.push(1.0);
-        raw_array.push(0.0);
-        raw_array.push(0.0);
-        raw_array.push(1.0);
-        raw_array.push(2.0);
-
+        let raw_array = vec![0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 2.0];
         Vertex::from_coordinates(raw_array);
     }
 }

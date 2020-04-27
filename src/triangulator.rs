@@ -58,8 +58,26 @@ impl Triangulator {
            - implement constrained delaunay triangulation
            - include segments as constraint
     */
-    pub fn from_vertices(vertices_coordinates: Vec<f64>) -> Triangulator {
-        Triangulator {
+    pub fn new() -> Self {
+        Self {
+            vertices: Vec::new(),
+            triangles: HashSet::new(),
+            conflict_map: HashMap::new(),
+            adjacency: HashMap::new(),
+        }
+    }
+
+    pub fn from_vertices(vertices: Vec<Rc<Vertex>>) -> Self {
+        Self {
+            vertices: vertices,
+            triangles: HashSet::new(),
+            conflict_map: HashMap::new(),
+            adjacency: HashMap::new(),
+        }
+    }
+
+    pub fn from_coordinates(vertices_coordinates: Vec<f64>) -> Self {
+        Self {
             vertices: Vertex::from_coordinates(vertices_coordinates),
             triangles: HashSet::new(),
             conflict_map: HashMap::new(),
@@ -78,7 +96,58 @@ impl Triangulator {
         }
     }
 
+    pub fn delete_vertex(&mut self, id: usize) {
+        if let Some(index) = self.vertices.iter().position(|vertex| vertex.id == id) {
+            /* if vertex was not inserted yet, avoids insert and return */
+            self.vertices.remove(index);
+            return;
+        }
+
+        /* Else removes triangles withe the specified vertex and inserts a  */
+        let conflicting_triangles: Vec<Rc<Triangle>> = self
+            .triangles
+            .iter()
+            .filter(|triangle| {
+                let is_v1 = triangle.v1.id == id;
+                let is_v2 = triangle.v2.id == id;
+                let is_v3 = triangle.v3.id == id;
+                return is_v1 || is_v2 || is_v3;
+            })
+            .cloned()
+            .collect();
+
+        for triangle in conflicting_triangles.iter() {
+            if triangle.is_ghost() {
+                panic!("Cannot delete vertex at boundary");
+            }
+        }
+
+        for triangle in conflicting_triangles.iter() {
+            self.remove_triangle(triangle);
+        }
+
+        let mut vertices_set: HashSet<Rc<Vertex>> = HashSet::new();
+
+        for triangle in conflicting_triangles.iter() {
+            vertices_set.insert(Rc::clone(&triangle.v1));
+            vertices_set.insert(Rc::clone(&triangle.v2));
+            vertices_set.insert(Rc::clone(&triangle.v3));
+        }
+
+        let mut vertices_vec: Vec<Rc<Vertex>> = vertices_set
+            .iter()
+            .filter(|vertex| vertex.id != id)
+            .cloned()
+            .collect();
+
+        let mut inner_triangulation = Self::from_vertices(vertices_vec);
+        inner_triangulation.triangulate();
+
+        self.merge(inner_triangulation);
+    }
+
     pub fn export_vertices(&self) -> Vec<f64> {
+        // vertices hashset will avoid duplicates
         let mut vertices_set: HashSet<Rc<Vertex>> = HashSet::new();
 
         for triangle in self.triangles.iter() {
@@ -92,6 +161,7 @@ impl Triangulator {
             .filter(|vertex| !vertex.is_ghost)
             .cloned()
             .collect();
+
         vertices_vec.sort();
 
         let mut coordinates: Vec<f64> = Vec::with_capacity(vertices_vec.len() * 2);
@@ -115,9 +185,22 @@ impl Triangulator {
         let mut triangles_indices: Vec<usize> = Vec::with_capacity(solid_triangle_vec.len() * 3);
 
         for triangle in solid_triangle_vec.iter() {
-            triangles_indices.push(triangle.v1.id);
-            triangles_indices.push(triangle.v2.id);
-            triangles_indices.push(triangle.v3.id);
+            let indices = vec![triangle.v1.id, triangle.v2.id, triangle.v3.id];
+            let min_index = indices.iter().min().unwrap();
+
+            if min_index == &triangle.v1.id {
+                triangles_indices.push(triangle.v1.id);
+                triangles_indices.push(triangle.v2.id);
+                triangles_indices.push(triangle.v3.id);
+            } else if min_index == &triangle.v2.id {
+                triangles_indices.push(triangle.v2.id);
+                triangles_indices.push(triangle.v3.id);
+                triangles_indices.push(triangle.v1.id);
+            } else {
+                triangles_indices.push(triangle.v3.id);
+                triangles_indices.push(triangle.v1.id);
+                triangles_indices.push(triangle.v2.id);
+            }
         }
 
         return triangles_indices;
@@ -281,6 +364,27 @@ impl Triangulator {
         self.adjacency.remove(&(Rc::clone(v2), Rc::clone(v3)));
         self.adjacency.remove(&(Rc::clone(v3), Rc::clone(v1)));
     }
+
+    /**
+     * Should be used against triangulations with no conflicts triangulations
+     */
+    fn merge(&mut self, other: Self) {
+        let solid_triangle_vec: Vec<Rc<Triangle>> = other
+            .triangles
+            .iter()
+            .filter(|triangle| !triangle.is_ghost())
+            .cloned()
+            .collect();
+
+        for triangle in solid_triangle_vec {
+            self.triangles.insert(Rc::clone(&triangle));
+        }
+
+        for ((v1, v2), val) in other.adjacency.iter() {
+            self.adjacency
+                .insert((Rc::clone(v1), Rc::clone(v2)), Rc::clone(val));
+        }
+    }
 }
 
 #[cfg(test)]
@@ -289,8 +393,8 @@ mod constructor {
 
     #[test]
     fn test_constructor() {
-        let mut vertex_indices = vec![0.0, 0.0, 2.0, 0.0, 1.0, 2.0];
-        let builder = Triangulator::from_vertices(vertex_indices);
+        let vertex_indices = vec![0.0, 0.0, 2.0, 0.0, 1.0, 2.0];
+        let builder = Triangulator::from_coordinates(vertex_indices);
         assert_eq!(builder.vertices.len(), 3);
     }
 }
@@ -301,8 +405,8 @@ mod init {
 
     #[test]
     fn test_init_single_triangle() {
-        let mut vertex_indices = vec![0.0, 0.0, 2.0, 0.0, 1.0, 2.0];
-        let mut builder = Triangulator::from_vertices(vertex_indices);
+        let vertex_indices = vec![0.0, 0.0, 2.0, 0.0, 1.0, 2.0];
+        let mut builder = Triangulator::from_coordinates(vertex_indices);
         builder.init();
         assert_eq!(builder.vertices.len(), 0);
         assert_eq!(builder.triangles.len(), 4);
@@ -310,8 +414,8 @@ mod init {
 
     #[test]
     fn test_init_triangle_with_conflict() {
-        let mut vertex_indices = vec![0.0, 0.0, 2.0, 0.0, 1.0, 2.0, 1.0, 1.0];
-        let mut builder = Triangulator::from_vertices(vertex_indices);
+        let vertex_indices = vec![0.0, 0.0, 2.0, 0.0, 1.0, 2.0, 1.0, 1.0];
+        let mut builder = Triangulator::from_coordinates(vertex_indices);
         builder.init();
         assert_eq!(builder.vertices.len(), 0);
         assert_eq!(builder.triangles.len() + builder.conflict_map.len(), 4);
@@ -324,12 +428,41 @@ mod triangulate {
 
     #[test]
     fn test_triangulate_4_vertices() {
-        let mut vertex_indices = vec![0.0, 0.0, 2.0, 0.0, 1.0, 2.0, 1.0, 1.0];
-        let mut builder = Triangulator::from_vertices(vertex_indices);
+        let vertex_indices = vec![0.0, 0.0, 2.0, 0.0, 1.0, 2.0, 1.0, 1.0];
+        let mut builder = Triangulator::from_coordinates(vertex_indices);
         builder.triangulate();
         assert_eq!(builder.vertices.len(), 0);
         assert_eq!(builder.triangles.len(), 6);
         assert_eq!(builder.conflict_map.len(), 0);
+    }
+}
+
+#[cfg(test)]
+mod delete_vertex {
+    use super::*;
+
+    #[test]
+    fn test_1() {
+        let vertex_indices = vec![0.0, 0.0, 2.0, 0.0, 1.0, 2.0, 1.0, 1.0];
+        let mut triangulator = Triangulator::from_coordinates(vertex_indices);
+        triangulator.triangulate();
+        triangulator.delete_vertex(3);
+        let solid_triangles: Vec<Rc<Triangle>> = triangulator
+            .triangles
+            .iter()
+            .filter(|triangle| !triangle.is_ghost())
+            .cloned()
+            .collect();
+        assert_eq!(solid_triangles.len(), 1);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_panics_at_boundary() {
+        let vertex_indices = vec![0.0, 0.0, 2.0, 0.0, 1.0, 2.0, 1.0, 1.0];
+        let mut triangulator = Triangulator::from_coordinates(vertex_indices);
+        triangulator.triangulate();
+        triangulator.delete_vertex(2);
     }
 }
 
@@ -339,26 +472,49 @@ mod export {
 
     #[test]
     fn test_export_vertices() {
-        let mut vertex_indices = vec![0.0, 0.0, 2.0, 0.0, 1.0, 2.0, 1.0, 1.0];
-        let mut builder = Triangulator::from_vertices(vertex_indices);
+        let vertex_indices = vec![0.0, 0.0, 2.0, 0.0, 1.0, 2.0, 1.0, 1.0];
+        let mut builder = Triangulator::from_coordinates(vertex_indices);
         builder.triangulate();
         let coordinates = builder.export_vertices();
-        assert!(coordinates.chunks(2).position(|slice| slice == [0.0, 0.0]) != None);
-        assert!(coordinates.chunks(2).position(|slice| slice == [2.0, 0.0]) != None);
-        assert!(coordinates.chunks(2).position(|slice| slice == [1.0, 2.0]) != None);
-        assert!(coordinates.chunks(2).position(|slice| slice == [1.0, 1.0]) != None);
+        let mut duplets = coordinates.chunks(2);
+        assert!(duplets.position(|slice| slice == [0.0, 0.0]) != None);
+        assert!(duplets.position(|slice| slice == [2.0, 0.0]) != None);
+        assert!(duplets.position(|slice| slice == [1.0, 2.0]) != None);
+        assert!(duplets.position(|slice| slice == [1.0, 1.0]) != None);
     }
 
     #[test]
     fn test_export_triangles() {
-        let mut vertex_indices = vec![0.0, 0.0, 2.0, 0.0, 1.0, 2.0, 1.0, 1.0];
-        let mut builder = Triangulator::from_vertices(vertex_indices);
+        let vertex_indices = vec![0.0, 0.0, 2.0, 0.0, 1.0, 2.0, 1.0, 1.0];
+        let mut builder = Triangulator::from_coordinates(vertex_indices);
         builder.triangulate();
-        let vertices_coordinates = builder.export_vertices();
         let triangles = builder.export_triangles();
-        println!();
-        assert!(triangles.chunks(3).position(|slice| slice == [1, 3, 0]) != None);
-        assert!(triangles.chunks(3).position(|slice| slice == [3, 2, 0]) != None);
+        assert!(triangles.chunks(3).position(|slice| slice == [0, 1, 3]) != None);
+        assert!(triangles.chunks(3).position(|slice| slice == [0, 3, 2]) != None);
         assert!(triangles.chunks(3).position(|slice| slice == [1, 2, 3]) != None);
+    }
+}
+
+#[cfg(test)]
+mod triangulation {
+    use super::*;
+
+    #[test]
+    fn test_square_with_center() {
+        let vertex_indices = vec![0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.5, 0.5];
+        /*
+            (0.0, 0.0)
+            (1.0, 0.0)
+            (1.0, 1.0)
+            (0.0, 1.0)
+            (0.5, 0.5)
+        */
+        let mut triangulator = Triangulator::from_coordinates(vertex_indices);
+        triangulator.triangulate();
+        let triangles = triangulator.export_triangles();
+        assert!(triangles.chunks(3).position(|slice| slice == [0, 1, 4]) != None);
+        assert!(triangles.chunks(3).position(|slice| slice == [1, 2, 4]) != None);
+        assert!(triangles.chunks(3).position(|slice| slice == [2, 3, 4]) != None);
+        assert!(triangles.chunks(3).position(|slice| slice == [0, 4, 3]) != None);
     }
 }
