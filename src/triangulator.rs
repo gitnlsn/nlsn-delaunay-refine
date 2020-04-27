@@ -20,7 +20,7 @@ At the end, there should be no vertex left inserting and no conflict
 left resolving. The triangles will detain vertices and coordinates.
 
 A triangle and a vertex are in conflict if the vertex is located
-inside the circuncircle of the triangle.  */
+inside the circumcircle of the triangle.  */
 
 pub struct Triangulator {
     vertices: Vec<Rc<Vertex>>,
@@ -227,8 +227,8 @@ impl Triangulator {
                     self.vertices.insert(0, v3);
                     v3 = self.vertices.pop().unwrap();
                 }
-            }; /* end - match orient_2d */
-        } /* end - loop */
+            }; /* match orient_2d */
+        } /* loop */
 
         let solid_triangle = Rc::new(Triangle::new(&v1, &v2, &v3));
         let tghost_1 = Rc::new(Triangle::new(&v2, &v1, &ghost_vertex));
@@ -314,6 +314,7 @@ impl Triangulator {
 
     fn include_triangle(&mut self, triangle: &Rc<Triangle>) {
         self.include_inner_adjacency(triangle);
+        
         match self.vertices.iter().position(|vertex| {
             /* searchs for conflicting vertex */
             triangle.encircles(vertex) == Continence::Inside
@@ -336,6 +337,7 @@ impl Triangulator {
             return;
         }
 
+        /*  if the triangle has a conflict, vertex should be moved back to vertices vec */
         if let Some(vertex) = self.conflict_map.remove(triangle) {
             self.vertices.push(vertex);
             return;
