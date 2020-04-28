@@ -1,10 +1,10 @@
+use num::Float;
 use std::cmp::Ordering;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
 pub struct Vertex {
-    pub id: usize,
     pub x: f64,
     pub y: f64,
     pub is_ghost: bool,
@@ -12,19 +12,47 @@ pub struct Vertex {
 
 impl Hash for Vertex {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.id.hash(state);
+        let (m, e, s) = Float::integer_decode(self.x);
+        m.hash(state);
+        e.hash(state);
+        s.hash(state);
+        
+        let (m, e, s) = Float::integer_decode(self.y);
+        m.hash(state);
+        e.hash(state);
+        s.hash(state);
+
+        self.is_ghost.hash(state);
     }
 }
 
 impl PartialEq for Vertex {
     fn eq(&self, other: &Self) -> bool {
-        self.x == other.x && self.y == other.y
+        self.x == other.x && self.y == other.y && self.is_ghost == other.is_ghost
     }
 }
 
+impl Eq for Vertex {}
+
 impl Ord for Vertex {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.id.cmp(&other.id)
+        if self.is_ghost && other.is_ghost {
+            return Ordering::Equal;
+        }
+
+        if self.x > other.x {
+            return Ordering::Greater;
+        } else if self.x < other.x {
+            return Ordering::Less;
+        } else {
+            if self.y > other.y {
+                return Ordering::Greater;
+            } else if self.y < other.y {
+                return Ordering::Less;
+            } else {
+                return Ordering::Equal;
+            }
+        }
     }
 }
 
@@ -33,8 +61,6 @@ impl PartialOrd for Vertex {
         Some(self.cmp(&other))
     }
 }
-
-impl Eq for Vertex {}
 
 impl fmt::Display for Vertex {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -46,18 +72,16 @@ impl fmt::Display for Vertex {
 }
 
 impl Vertex {
-    pub fn new(id: usize, x: f64, y: f64) -> Self {
+    pub fn new(x: f64, y: f64) -> Self {
         Self {
-            id: id,
             x: x,
             y: y,
             is_ghost: false,
         }
     }
 
-    pub fn new_ghost(id: usize) -> Vertex {
+    pub fn new_ghost() -> Vertex {
         Vertex {
-            id: id,
             x: 0.0,
             y: 0.0,
             is_ghost: true,
@@ -77,7 +101,7 @@ impl Vertex {
             let x = raw_array.get(index * 2).unwrap();
             let y = raw_array.get(index * 2 + 1).unwrap();
 
-            let new_vertex = Vertex::new(index as usize, *x, *y);
+            let new_vertex = Vertex::new(*x, *y);
             vertex_list.push(Rc::new(new_vertex));
         }
 
@@ -98,10 +122,10 @@ mod ghost_vertex {
 
     #[test]
     fn test_ghost_property_is_bool() {
-        let v = Vertex::new_ghost(0);
+        let v = Vertex::new_ghost();
         assert!(v.is_ghost);
 
-        let v = Vertex::new(0, 0.0, 0.0);
+        let v = Vertex::new(0.0, 0.0);
         assert!(!v.is_ghost);
     }
 }

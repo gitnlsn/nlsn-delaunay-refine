@@ -37,25 +37,25 @@ mod orient_2d {
 
     #[test]
     fn test_counterclockwise() {
-        let p1 = Vertex::new(0, 0.0, 0.0);
-        let p2 = Vertex::new(1, 1.0, 0.0);
-        let p3 = Vertex::new(2, 0.0, 1.0);
+        let p1 = Vertex::new(0.0, 0.0);
+        let p2 = Vertex::new(1.0, 0.0);
+        let p3 = Vertex::new(0.0, 1.0);
         assert_eq!(orient_2d(&p1, &p2, &p3), Orientation::Counterclockwise);
     }
     
     #[test]
     fn test_clockwise() {
-        let p1 = Vertex::new(0, 0.0, 0.0);
-        let p2 = Vertex::new(1, 0.0, 1.0);
-        let p3 = Vertex::new(2, 1.0, 0.0);
+        let p1 = Vertex::new(0.0, 0.0);
+        let p2 = Vertex::new(0.0, 1.0);
+        let p3 = Vertex::new(1.0, 0.0);
         assert_eq!(orient_2d(&p1, &p2, &p3), Orientation::Clockwise);
     }
     
     #[test]
     fn test_colinear() {
-        let p1 = Vertex::new(0, 0.0, 0.0);
-        let p2 = Vertex::new(1, 1.0, 1.0);
-        let p3 = Vertex::new(2, 2.0, 2.0);
+        let p1 = Vertex::new(0.0, 0.0);
+        let p2 = Vertex::new(1.0, 1.0);
+        let p3 = Vertex::new(2.0, 2.0);
         assert_eq!(orient_2d(&p1, &p2, &p3), Orientation::Colinear);
     }
 }

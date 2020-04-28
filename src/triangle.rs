@@ -85,9 +85,9 @@ mod constructor {
 
     #[test]
     fn test_new_triangle() {
-        let v1 = Rc::new(Vertex::new(0, 0.0, 1.0));
-        let v2 = Rc::new(Vertex::new(1, 2.0, 3.0));
-        let v3 = Rc::new(Vertex::new(2, 4.0, 7.0));
+        let v1 = Rc::new(Vertex::new(0.0, 1.0));
+        let v2 = Rc::new(Vertex::new(2.0, 3.0));
+        let v3 = Rc::new(Vertex::new(4.0, 7.0));
 
         let t1 = Triangle::new(&v1, &v2, &v3);
 
@@ -106,10 +106,10 @@ mod ghost_triangle {
 
     #[test]
     fn test_at_least_one_vertex_is_ghost() {
-        let v1 = Rc::new(Vertex::new(0, 0.0, 1.0));
-        let v2 = Rc::new(Vertex::new(1, 2.0, 3.0));
-        let v3 = Rc::new(Vertex::new(2, 4.0, 7.0));
-        let ghost = Rc::new(Vertex::new_ghost(3));
+        let v1 = Rc::new(Vertex::new(0.0, 1.0));
+        let v2 = Rc::new(Vertex::new(2.0, 3.0));
+        let v3 = Rc::new(Vertex::new(4.0, 7.0));
+        let ghost = Rc::new(Vertex::new_ghost());
 
         /* alternating ghost position */
         let t1 = Triangle::new(&v1, &v2, &ghost);
@@ -133,10 +133,10 @@ mod structure {
 
     #[test]
     fn test_allows_two_triangles_with_same_vertices() {
-        let v1 = Rc::new(Vertex::new(0, 0.0, 0.0));
-        let v2 = Rc::new(Vertex::new(1, 2.0, 0.0));
-        let v3 = Rc::new(Vertex::new(2, 0.0, 2.0));
-        let v4 = Rc::new(Vertex::new(3, 2.0, 2.0));
+        let v1 = Rc::new(Vertex::new(0.0, 0.0));
+        let v2 = Rc::new(Vertex::new(2.0, 0.0));
+        let v3 = Rc::new(Vertex::new(0.0, 2.0));
+        let v4 = Rc::new(Vertex::new(2.0, 2.0));
 
         let t1 = Triangle::new(&v1, &v2, &v3);
         let t2 = Triangle::new(&v1, &v2, &v4);
@@ -149,18 +149,18 @@ mod encircles {
 
     #[test]
     fn test_triangle_in_circle_method() {
-        let v1 = Rc::new(Vertex::new(0, 0.0, 0.0));
-        let v2 = Rc::new(Vertex::new(1, 1.0, 0.0));
-        let v3 = Rc::new(Vertex::new(2, 0.0, 1.0));
+        let v1 = Rc::new(Vertex::new(0.0, 0.0));
+        let v2 = Rc::new(Vertex::new(1.0, 0.0));
+        let v3 = Rc::new(Vertex::new(0.0, 1.0));
         let t1 = Triangle::new(&v1, &v2, &v3);
 
-        let v4 = Rc::new(Vertex::new(3, 0.3, 0.3));
+        let v4 = Rc::new(Vertex::new(0.3, 0.3));
         assert_eq!(t1.encircles(&v4), Continence::Inside);
 
-        let v4 = Rc::new(Vertex::new(4, 2.0, 2.0));
+        let v4 = Rc::new(Vertex::new(2.0, 2.0));
         assert_eq!(t1.encircles(&v4), Continence::Outside);
 
-        let v4 = Rc::new(Vertex::new(5, 1.0, 1.0));
+        let v4 = Rc::new(Vertex::new(1.0, 1.0));
         assert_eq!(t1.encircles(&v4), Continence::Boundary);
     }
 }
@@ -171,18 +171,18 @@ mod area {
 
     #[test]
     fn test_area() {
-        let v1 = Rc::new(Vertex::new(0, 0.0, 0.0));
-        let v2 = Rc::new(Vertex::new(1, 1.0, 0.0));
-        let v3 = Rc::new(Vertex::new(2, 0.0, 1.0));
+        let v1 = Rc::new(Vertex::new(0.0, 0.0));
+        let v2 = Rc::new(Vertex::new(1.0, 0.0));
+        let v3 = Rc::new(Vertex::new(0.0, 1.0));
         let t1 = Triangle::new(&v1, &v2, &v3);
         assert_eq!(t1.area(), 0.5);
     }
 
     #[test]
     fn test_ghost_triangle_area_is_zero() {
-        let v1 = Rc::new(Vertex::new(0, 0.0, 0.0));
-        let v2 = Rc::new(Vertex::new(1, 1.0, 0.0));
-        let v3 = Rc::new(Vertex::new_ghost(2));
+        let v1 = Rc::new(Vertex::new(0.0, 0.0));
+        let v2 = Rc::new(Vertex::new(1.0, 0.0));
+        let v3 = Rc::new(Vertex::new_ghost());
         let t1 = Triangle::new(&v1, &v2, &v3);
         assert_eq!(t1.area(), 0.0);
     }
