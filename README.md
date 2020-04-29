@@ -38,21 +38,24 @@ The choice for `Rust` is due to its portability in sereral rust contexts and its
     - [ ] 3D Delaunay Triangulation
     - [ ] 3D Delaunay Refinement
 
+# Features
+
+- Standard Delaunay Triangulation
+- Incremental Vertex Insertion
+- Decremental Vertex Deletion
+- Holes
+- Refinement (*in progress*)
+- Tetrahedralization (*in progress*)
+
 # API
 
 > In progress
 
-# Development
+# Contributions
 
-This repository is build with Rust and Cargo.
+At first, clone the repository, with a cargo environment. Fork it if you want. Run the tests. Read the code.
 
-``` bash
-# Run tests
-> cargo test
-
-# Build the module
-> cargo build
-```
+Open an issue with suggestions, code reviews, refactoring.
 
 # References
 
