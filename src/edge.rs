@@ -83,6 +83,43 @@ impl Edge {
         
         return Vertex::new(x_mid, y_mid);
     }
+
+    pub fn from_coordinates(coordinates: &Vec<f64>) -> Vec<Rc<Edge>> {
+        if coordinates.len() % 2 != 0 {
+            panic!("Vec must provide vertices by pair of x,y coordinates.");
+        }
+
+        let vertices_list = Vertex::from_coordinates(coordinates);
+        let mut edge_list: Vec<Rc<Edge>> = Vec::new();
+
+        for index in 0..vertices_list.len() {
+            let v1 = vertices_list.get(index).unwrap();
+            let v2 = match vertices_list.get(index + 1) {
+                Some(vertex) => vertex,
+                None => vertices_list.get(0).unwrap(),
+            };
+            let new_edge = Rc::new(Edge::new(v1, v2));
+            edge_list.push(new_edge);
+        }
+
+        return edge_list;
+    }
+
+    pub fn from_vertices(vertices_list: &Vec<Rc<Vertex>>) -> Vec<Rc<Edge>> {
+        let mut edge_list: Vec<Rc<Edge>> = Vec::new();
+
+        for index in 0..vertices_list.len() {
+            let v1 = vertices_list.get(index).unwrap();
+            let v2 = match vertices_list.get(index + 1) {
+                Some(vertex) => vertex,
+                None => vertices_list.get(0).unwrap(),
+            };
+            let new_edge = Rc::new(Edge::new(v1, v2));
+            edge_list.push(new_edge);
+        }
+
+        return edge_list;
+    }
 }
 
 #[cfg(test)]

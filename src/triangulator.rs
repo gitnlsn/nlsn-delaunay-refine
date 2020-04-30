@@ -79,7 +79,7 @@ impl Triangulator {
 
     pub fn from_coordinates(vertices_coordinates: Vec<f64>) -> Self {
         Self {
-            vertices: Vertex::from_coordinates(vertices_coordinates),
+            vertices: Vertex::from_coordinates(&vertices_coordinates),
             triangles: HashSet::new(),
             conflict_map: HashMap::new(),
             adjacency: HashMap::new(),
@@ -97,33 +97,80 @@ impl Triangulator {
         }
     }
 
-    pub fn insert_hole(&mut self, vertex_list: Vec<Rc<Vertex>>) {
-        /**
-         * Vertex list must define successive connected edges and a closed boundary.
-         */
-        let mut inner_edges: HashSet<Rc<Edge>> = HashSet::new();
-        for index in 0..vertex_list.len() {
-            let v1 = vertex_list.get(index).unwrap();
-            let v2 = match vertex_list.get(index + 1) {
-                Some(vertex) => vertex,
-                None => vertex_list.get(0).unwrap(),
-            };
-            let new_edge = Rc::new(Edge::new(v1, v2));
-            inner_edges.insert(new_edge);
-        }
+    /**
+     * Removes triangles through flood fill.
+     * Coordinates will define the hole boundary by vertex insertion.
+     * Tringles from inner hole will be removed from boundary to greater depth through adjacency.
+     */
+    pub fn insert_hole(&mut self, coordinates: Vec<f64>) {
+        let vertices_list: Vec<Rc<Vertex>> = Vertex::from_coordinates(&coordinates);
+        let edges_list: Vec<Rc<Edge>> = Edge::from_vertices(&vertices_list);
 
-        for vertex in vertex_list.iter() {
+        let mut pending_edges: Vec<Rc<Edge>> = Vec::new();
+
+        for vertex in vertices_list.iter() {
             self.insert_vertex(Rc::clone(vertex));
         }
 
         let ghost_vertex = Rc::new(Vertex::new_ghost());
-        for edge in inner_edges.iter() {
-            if let Some(inner_triangle) = self.adjacency.get(edge) {
-                self.remove_triangle(&Rc::clone(inner_triangle));
+
+        /* 
+            0-depth triangles are removed
+            At boundary, Ghost triangles are inserted.
+            Inner edges are added to the pending list.
+        */
+        for edge_to_hole in edges_list.iter() {
+            let edge_to_hole = Rc::clone(&edge_to_hole);
+            if let Some(inner_triangle) = self.adjacency.get(&edge_to_hole) {
+                let triangle_to_remove: Rc<Triangle> = Rc::clone(inner_triangle);
+                self.remove_triangle(&triangle_to_remove);
+                
+                let (e1, e2, e3) = triangle_to_remove.inner_edges();
+                if !edges_list.contains(&e1) {
+                    pending_edges.push(Rc::new(e1.opposite()));
+                }
+                if !edges_list.contains(&e2) {
+                    pending_edges.push(Rc::new(e2.opposite()));
+                }
+                if !edges_list.contains(&e3) {
+                    pending_edges.push(Rc::new(e3.opposite()));
+                }
             }
 
-            let ghost_triangle = Rc::new(Triangle::new(&edge.v1, &edge.v2, &ghost_vertex));
+            /* 
+                Due to the ghost triangle, 
+                a vertex insertion in the hole results in filling the hole.
+            */
+            let ghost_triangle = Rc::new(Triangle::new(
+                &edge_to_hole.v1,
+                &edge_to_hole.v2,
+                &ghost_vertex,
+            ));
             self.include_triangle(&ghost_triangle);
+        }
+
+        /* 
+            Flood fill
+            actual deepth triangles are removed if they exist
+            backward deepth is longer connected by adjacency
+            all possible edges are added to the pending list
+            only n+1 deepth will have remaining triangles to be removed
+        */
+        loop {
+            if pending_edges.is_empty() {
+                break;
+            }
+
+            let edge_to_hole = Rc::clone(&pending_edges.pop().unwrap());
+            if let Some(inner_triangle) = self.adjacency.get(&edge_to_hole) {
+                let triangle_to_remove: Rc<Triangle> = Rc::clone(inner_triangle);
+                self.remove_triangle(&triangle_to_remove);
+                
+                let (e1, e2, e3) = triangle_to_remove.inner_edges();
+                pending_edges.push(Rc::new(e1.opposite()));
+                pending_edges.push(Rc::new(e2.opposite()));
+                pending_edges.push(Rc::new(e3.opposite()));
+            }
         }
     }
 
@@ -661,7 +708,7 @@ mod insert_hole {
             (10.0,  0.0)
             ( 5.0, 10.0)
         */
-        let hole_path = Vertex::from_coordinates(vec![5.0, 2.0, 4.0, 3.0, 3.0, 3.0]);
+        let hole_path = vec![5.0, 2.0, 4.0, 3.0, 3.0, 3.0];
         /*
            (5.0, 2.0)
            (4.0, 3.0)
@@ -673,6 +720,37 @@ mod insert_hole {
 
         assert_eq!(triangulator.vertices_size(), 6);
         assert_eq!(triangulator.triangles_size(), 6);
+    }
+
+    #[test]
+    fn test_star_inside_square() {
+        let mut triangulator =
+            Triangulator::from_coordinates(vec![0.0, 0.0, 10.0, 0.0, 10.0, 10.0, 0.0, 10.0]);
+        /*
+            ( 0.0,  0.0)
+            (10.0,  0.0)
+            (10.0, 10.0)
+            ( 0.0, 10.0)
+        */
+        let hole_path = vec![
+            5.0, 2.0, 6.0, 4.0, 8.0, 5.0, 6.0, 6.0, 5.0, 8.0, 4.0, 6.0, 2.0, 5.0, 4.0, 4.0,
+        ];
+        /*
+           (5.0, 2.0)
+           (6.0, 4.0)
+           (8.0, 5.0)
+           (6.0, 6.0)
+           (5.0, 8.0)
+           (4.0, 6.0)
+           (2.0, 5.0)
+           (4.0, 4.0)
+        */
+
+        triangulator.triangulate();
+        triangulator.insert_hole(hole_path);
+
+        assert_eq!(triangulator.vertices_size(), 12);
+        assert_eq!(triangulator.triangles_size(), 12);
     }
 }
 

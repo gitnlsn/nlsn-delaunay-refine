@@ -90,9 +90,9 @@ impl Vertex {
         }
     }
 
-    pub fn from_coordinates(raw_array: Vec<f64>) -> Vec<Rc<Vertex>> {
+    pub fn from_coordinates(raw_array: &Vec<f64>) -> Vec<Rc<Vertex>> {
         if raw_array.len() % 2 != 0 {
-            panic!("Array must provide vertices by pair of x,y coordinates.");
+            panic!("Vec must provide vertices by pair of x,y coordinates.");
         }
 
         let list_size = raw_array.len() / 2;
@@ -140,7 +140,7 @@ mod build_from_coordinates {
     fn test_builds_all_vertices() {
         let raw_array = vec![0.0, 1.0, 4.0, 5.0, 2.0, 3.0];
 
-        let mut vertex_list = Vertex::from_coordinates(raw_array);
+        let mut vertex_list = Vertex::from_coordinates(&raw_array);
 
         assert_eq!(vertex_list.len(), 3);
 
@@ -166,6 +166,6 @@ mod build_from_coordinates {
     #[should_panic]
     fn test_dont_accept_wrong_size_array() {
         let raw_array = vec![0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 2.0];
-        Vertex::from_coordinates(raw_array);
+        Vertex::from_coordinates(&raw_array);
     }
 }
