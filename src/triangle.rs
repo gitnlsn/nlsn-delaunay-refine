@@ -1,6 +1,7 @@
 use crate::continence::*;
-use crate::orientation::*;
 use crate::distance::*;
+use crate::edge::*;
+use crate::orientation::*;
 use crate::vertex::*;
 use nalgebra::{Matrix2, Matrix2x1, Matrix3};
 
@@ -119,7 +120,7 @@ impl Triangle {
     }
 
     pub fn quality_ratio(&self) -> f64 {
-        /* 
+        /*
             Let a,b,c be the sides of a triangle, and A its area.
             Then radius is given by:
 
@@ -136,12 +137,28 @@ impl Triangle {
         let area = self.area();
 
         if a <= b && a <= c {
-            return b*c / (4.0 * area);
+            return b * c / (4.0 * area);
         } else if b <= c {
-            return a*c / (4.0 * area);
+            return a * c / (4.0 * area);
         } else {
-            return a*b / (4.0 * area);
+            return a * b / (4.0 * area);
         }
+    }
+
+    pub fn inner_edges(&self) -> (Rc<Edge>, Rc<Edge>, Rc<Edge>) {
+        let e1 = Rc::new(Edge::new(&self.v1, &self.v2));
+        let e2 = Rc::new(Edge::new(&self.v2, &self.v3));
+        let e3 = Rc::new(Edge::new(&self.v3, &self.v1));
+
+        return (e1, e2, e3);
+    }
+    
+    pub fn outer_edges(&self) -> (Rc<Edge>, Rc<Edge>, Rc<Edge>) {
+        let e1 = Rc::new(Edge::new(&self.v2, &self.v1));
+        let e2 = Rc::new(Edge::new(&self.v3, &self.v2));
+        let e3 = Rc::new(Edge::new(&self.v1, &self.v3));
+
+        return (e1, e2, e3);
     }
 }
 

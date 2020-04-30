@@ -2,16 +2,45 @@ use crate::continence::*;
 use crate::vertex::*;
 use std::rc::Rc;
 
-struct Edge {
+use std::hash::Hash;
+use std::cmp::Eq;
+
+use std::fmt;
+use std::fmt::Debug;
+
+#[derive(Hash, Debug)]
+pub struct Edge {
     pub v1: Rc<Vertex>,
     pub v2: Rc<Vertex>,
 }
 
+impl PartialEq for Edge {
+    fn eq(&self, other: &Self) -> bool {
+        /* oriented edge */
+        self.v1 == other.v1 && self.v2 == other.v2
+    }
+}
+
+impl Eq for Edge {}
+
+impl fmt::Display for Edge {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        return write!(f, "({} - {})", self.v1, self.v2);
+    }
+}
+
 impl Edge {
-    pub fn new(v1: Rc<Vertex>, v2: Rc<Vertex>) -> Self {
+    pub fn new(v1: &Rc<Vertex>, v2: &Rc<Vertex>) -> Self {
         Self {
-            v1: v1,
-            v2: v2,
+            v1: Rc::clone(v1),
+            v2: Rc::clone(v2),
+        }
+    }
+
+    pub fn opposite(&self) -> Self {
+        Self {
+            v1: Rc::clone(&self.v2),
+            v2: Rc::clone(&self.v1),
         }
     }
 
@@ -65,7 +94,7 @@ mod length {
         let v1 = Rc::new(Vertex::new(0.0, 0.0));
         let v2 = Rc::new(Vertex::new(1.0, 1.0));
 
-        let edge = Edge::new(v1, v2);
+        let edge = Edge::new(&v1, &v2);
         assert!((edge.length() - (2.0 as f64).sqrt()).abs() < 0.00000001);
     }
 }
@@ -80,7 +109,7 @@ mod encroach {
         
         let trial_vertex = Rc::new(Vertex::new(0.0, 0.99));
 
-        let edge = Edge::new(v1, v2);
+        let edge = Edge::new(&v1, &v2);
         assert_eq!(edge.encroach(&trial_vertex), Continence::Inside);
     }
 
@@ -91,7 +120,7 @@ mod encroach {
         
         let trial_vertex = Rc::new(Vertex::new(0.0, 1.01));
 
-        let edge = Edge::new(v1, v2);
+        let edge = Edge::new(&v1, &v2);
         assert_eq!(edge.encroach(&trial_vertex), Continence::Outside);
     }
 
@@ -102,7 +131,7 @@ mod encroach {
         
         let trial_vertex = Rc::new(Vertex::new(0.0, 1.0));
 
-        let edge = Edge::new(v1, v2);
+        let edge = Edge::new(&v1, &v2);
         assert_eq!(edge.encroach(&trial_vertex), Continence::Boundary);
     }
 }
@@ -111,13 +140,46 @@ mod midpoint {
     use super::*;
 
     #[test]
-    fn name() {
+    fn test_midpoint_calculation() {
         let v1 = Rc::new(Vertex::new(0.0, 0.0));
         let v2 = Rc::new(Vertex::new(1.0, 1.2));
         
-        let edge = Edge::new(v1, v2);
+        let edge = Edge::new(&v1, &v2);
         let midpoint = edge.midpoint();
         assert_eq!(midpoint.x, 0.5);
         assert_eq!(midpoint.y, 0.6);
+    }
+}
+
+#[cfg(test)]
+mod equality {
+    use super::*;
+
+    #[test]
+    fn test_different_objects() {
+        let v1 = Rc::new(Vertex::new(0.0, 0.0));
+        let v2 = Rc::new(Vertex::new(1.0, 1.2));
+        
+        let e1 = Edge::new(&v1, &v2);
+        let e2 = Edge::new(&v1, &v2);
+        assert!(e1 == e2);
+
+        let e1 = Rc::new(Edge::new(&v1, &v2));
+        let e2 = Rc::new(Edge::new(&v1, &v2));
+        assert!(e1 == e2);
+    }
+    
+    #[test]
+    fn test_half_edge() {
+        let v1 = Rc::new(Vertex::new(0.0, 0.0));
+        let v2 = Rc::new(Vertex::new(1.0, 1.2));
+        
+        let e1 = Edge::new(&v1, &v2);
+        let e2 = Edge::new(&v2, &v1);
+        assert!(e1 != e2);
+        
+        let e1 = Rc::new(Edge::new(&v1, &v2));
+        let e2 = Rc::new(Edge::new(&v2, &v1));
+        assert!(e1 != e2);
     }
 }

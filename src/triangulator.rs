@@ -1,4 +1,5 @@
 use crate::continence::*;
+use crate::edge::*;
 use crate::orientation::*;
 use crate::triangle::*;
 use crate::triangulation::*;
@@ -27,7 +28,7 @@ pub struct Triangulator {
     vertices: Vec<Rc<Vertex>>,
     triangles: HashSet<Rc<Triangle>>,
     conflict_map: HashMap<Rc<Triangle>, Rc<Vertex>>,
-    adjacency: HashMap<(Rc<Vertex>, Rc<Vertex>), Rc<Triangle>>,
+    adjacency: HashMap<Rc<Edge>, Rc<Triangle>>,
 }
 
 impl fmt::Display for Triangulator {
@@ -45,8 +46,8 @@ impl fmt::Display for Triangulator {
             write!(f, "{} -> {}\n", triangle, vertex);
         }
         write!(f, "\nAdjacency\n");
-        for ((v1, v2), triangle) in self.adjacency.iter() {
-            write!(f, "({}, {}) -> {}\n", v1, v2, triangle);
+        for (edge, triangle) in self.adjacency.iter() {
+            write!(f, "{} -> {}\n", edge, triangle);
         }
         return write!(f, "");
     }
@@ -96,18 +97,19 @@ impl Triangulator {
         }
     }
 
-    /**
-     * Vertex list must define successive connected edges and a closed boundary.
-     */
     pub fn insert_hole(&mut self, vertex_list: Vec<Rc<Vertex>>) {
-        let mut inner_edges: HashSet<(Rc<Vertex>, Rc<Vertex>)> = HashSet::new();
+        /**
+         * Vertex list must define successive connected edges and a closed boundary.
+         */
+        let mut inner_edges: HashSet<Rc<Edge>> = HashSet::new();
         for index in 0..vertex_list.len() {
             let v1 = vertex_list.get(index).unwrap();
             let v2 = match vertex_list.get(index + 1) {
                 Some(vertex) => vertex,
                 None => vertex_list.get(0).unwrap(),
             };
-            inner_edges.insert((Rc::clone(v1), Rc::clone(v2)));
+            let new_edge = Rc::new(Edge::new(v1, v2));
+            inner_edges.insert(new_edge);
         }
 
         for vertex in vertex_list.iter() {
@@ -115,12 +117,12 @@ impl Triangulator {
         }
 
         let ghost_vertex = Rc::new(Vertex::new_ghost());
-        for (v1, v2) in inner_edges.iter() {
-            if let Some(inner_triangle) = self.adjacency.get(&(Rc::clone(v1), Rc::clone(v2))) {
+        for edge in inner_edges.iter() {
+            if let Some(inner_triangle) = self.adjacency.get(edge) {
                 self.remove_triangle(&Rc::clone(inner_triangle));
             }
 
-            let ghost_triangle = Rc::new(Triangle::new(v1, v2, &ghost_vertex));
+            let ghost_triangle = Rc::new(Triangle::new(&edge.v1, &edge.v2, &ghost_vertex));
             self.include_triangle(&ghost_triangle);
         }
     }
@@ -324,20 +326,14 @@ impl Triangulator {
         }
 
         /* starts by disassembling the conflicting triangle */
-        let triangle = Rc::clone(self.conflict_map.keys().next().unwrap());
+        let triangle: Rc<Triangle> = Rc::clone(self.conflict_map.keys().next().unwrap());
         let vertex_to_insert = self.conflict_map.remove(&triangle).unwrap();
         self.remove_inner_adjacency(&triangle);
 
-        let v1 = &triangle.v1;
-        let v2 = &triangle.v2;
-        let v3 = &triangle.v3;
+        let (e12, e23, e31) = triangle.inner_edges();
 
         /* A list of edges and possible cavities to analyse */
-        let mut pending_cavities: Vec<(Rc<Vertex>, Rc<Vertex>)> = vec![
-            (Rc::clone(v1), Rc::clone(v2)),
-            (Rc::clone(v2), Rc::clone(v3)),
-            (Rc::clone(v3), Rc::clone(v1)),
-        ];
+        let mut pending_cavities: Vec<Rc<Edge>> = vec![e12, e23, e31];
 
         /* Recursive implementation to digCavity */
         loop {
@@ -345,44 +341,43 @@ impl Triangulator {
                 break;
             }
 
-            let (v_begin, v_end) = pending_cavities.pop().unwrap();
+            let edge: Rc<Edge> = pending_cavities.pop().unwrap();
+            let edge_to_outer_triangle: Rc<Edge> = Rc::new(edge.opposite());
 
             /* adjacent triangle is met by opposite half edge: end -> begin */
-            let outer_triangle = Rc::clone(
-                self.adjacency
-                    .get(&(Rc::clone(&v_end), Rc::clone(&v_begin)))
-                    .unwrap(),
-            );
+            let outer_triangle: Rc<Triangle> =
+                Rc::clone(self.adjacency.get(&edge_to_outer_triangle).unwrap());
 
             /* If the cavity encircles the vertex, new cavities are to be analysed */
             if outer_triangle.encircles(&vertex_to_insert) == Continence::Inside {
                 /* disassembles */
                 self.remove_triangle(&outer_triangle);
-                let outer_v1 = &outer_triangle.v1;
-                let outer_v2 = &outer_triangle.v2;
-                let outer_v3 = &outer_triangle.v3;
+                let (e12, e23, e31) = outer_triangle.inner_edges();
 
                 /* includes cavities */
-                if *outer_v1 == v_begin {
-                    pending_cavities.push((Rc::clone(outer_v1), Rc::clone(outer_v2)));
-                    pending_cavities.push((Rc::clone(outer_v2), Rc::clone(outer_v3)));
-                } else if *outer_v2 == v_begin {
-                    pending_cavities.push((Rc::clone(outer_v2), Rc::clone(outer_v3)));
-                    pending_cavities.push((Rc::clone(outer_v3), Rc::clone(outer_v1)));
+                if edge_to_outer_triangle == e12 {
+                    pending_cavities.push(e23);
+                    pending_cavities.push(e31);
+                } else if edge_to_outer_triangle == e23 {
+                    pending_cavities.push(e12);
+                    pending_cavities.push(e31);
                 } else {
-                    pending_cavities.push((Rc::clone(outer_v3), Rc::clone(outer_v1)));
-                    pending_cavities.push((Rc::clone(outer_v1), Rc::clone(outer_v2)));
+                    pending_cavities.push(e12);
+                    pending_cavities.push(e23);
                 }
             } else {
                 /* Includes new triangle */
-                if v_begin.is_ghost {
-                    let new_triangle = Rc::new(Triangle::new(&v_end, &vertex_to_insert, &v_begin));
+                if edge.v1.is_ghost {
+                    let new_triangle =
+                        Rc::new(Triangle::new(&edge.v2, &vertex_to_insert, &edge.v1));
                     self.include_triangle(&new_triangle);
-                } else if v_end.is_ghost {
-                    let new_triangle = Rc::new(Triangle::new(&vertex_to_insert, &v_begin, &v_end));
+                } else if edge.v2.is_ghost {
+                    let new_triangle =
+                        Rc::new(Triangle::new(&vertex_to_insert, &edge.v1, &edge.v2));
                     self.include_triangle(&new_triangle);
                 } else {
-                    let new_triangle = Rc::new(Triangle::new(&v_begin, &v_end, &vertex_to_insert));
+                    let new_triangle =
+                        Rc::new(Triangle::new(&edge.v1, &edge.v2, &vertex_to_insert));
                     self.include_triangle(&new_triangle);
                 }
             }
@@ -424,24 +419,17 @@ impl Triangulator {
     }
 
     fn include_inner_adjacency(&mut self, triangle: &Rc<Triangle>) {
-        let v1 = &triangle.v1;
-        let v2 = &triangle.v2;
-        let v3 = &triangle.v3;
-        self.adjacency
-            .insert((Rc::clone(v1), Rc::clone(v2)), Rc::clone(triangle));
-        self.adjacency
-            .insert((Rc::clone(v2), Rc::clone(v3)), Rc::clone(triangle));
-        self.adjacency
-            .insert((Rc::clone(v3), Rc::clone(v1)), Rc::clone(triangle));
+        let (e12, e23, e31) = triangle.inner_edges();
+        self.adjacency.insert(e12, Rc::clone(triangle));
+        self.adjacency.insert(e23, Rc::clone(triangle));
+        self.adjacency.insert(e31, Rc::clone(triangle));
     }
 
     fn remove_inner_adjacency(&mut self, triangle: &Rc<Triangle>) {
-        let v1 = &triangle.v1;
-        let v2 = &triangle.v2;
-        let v3 = &triangle.v3;
-        self.adjacency.remove(&(Rc::clone(v1), Rc::clone(v2)));
-        self.adjacency.remove(&(Rc::clone(v2), Rc::clone(v3)));
-        self.adjacency.remove(&(Rc::clone(v3), Rc::clone(v1)));
+        let (e12, e23, e31) = triangle.inner_edges();
+        self.adjacency.remove(&e12);
+        self.adjacency.remove(&e23);
+        self.adjacency.remove(&e31);
     }
 
     /**
@@ -459,9 +447,8 @@ impl Triangulator {
             self.triangles.insert(Rc::clone(&triangle));
         }
 
-        for ((v1, v2), val) in other.adjacency.iter() {
-            self.adjacency
-                .insert((Rc::clone(v1), Rc::clone(v2)), Rc::clone(val));
+        for (edge, val) in other.adjacency.iter() {
+            self.adjacency.insert(Rc::clone(edge), Rc::clone(val));
         }
     }
 }

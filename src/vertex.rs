@@ -3,7 +3,9 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
+use std::fmt::Debug;
 
+#[derive(Debug)]
 pub struct Vertex {
     pub x: f64,
     pub y: f64,
