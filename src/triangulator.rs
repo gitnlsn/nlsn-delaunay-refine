@@ -700,6 +700,9 @@ mod insert_vertex {
 mod insert_hole {
     use super::*;
 
+    /**
+     * Simple 0-depth hole insertion
+     */
     #[test]
     fn test_triangle_hole_inside_triangle() {
         let mut triangulator = Triangulator::from_coordinates(vec![0.0, 0.0, 10.0, 0.0, 5.0, 10.0]);
@@ -722,6 +725,9 @@ mod insert_hole {
         assert_eq!(triangulator.triangles_size(), 6);
     }
 
+    /**
+     * Defines requirement for flood fill in hole insertion.
+     */
     #[test]
     fn test_star_inside_square() {
         let mut triangulator =
