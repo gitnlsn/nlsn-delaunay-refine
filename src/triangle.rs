@@ -1,7 +1,8 @@
 use crate::continence::*;
 use crate::orientation::*;
+use crate::distance::*;
 use crate::vertex::*;
-use nalgebra::Matrix3;
+use nalgebra::{Matrix2, Matrix2x1, Matrix3};
 
 use std::cmp::Eq;
 use std::fmt;
@@ -75,6 +76,71 @@ impl Triangle {
                 Orientation::Counterclockwise => return Continence::Inside,
                 _ => return Continence::Outside,
             }
+        }
+    }
+
+    pub fn circumcenter(&self) -> Rc<Vertex> {
+        /*
+            Let (x1,y1), (x2,y2), (x3,y3) be the vertices of a triangle.self
+                then (xc,yc) is the circumcenter, if it exists:
+
+            [xc] =  1/2  * [x3^2 - x1^2 + y3^2 - y1^2] * [x3-x1 y3-y1] ^ -1
+            [yc] =         [x2^2 - x1^2 + y2^2 - y1^2] * [x2-x1 y2-y1]
+        */
+
+        let x1 = self.v1.x;
+        let y1 = self.v1.y;
+
+        let x2 = self.v2.x;
+        let y2 = self.v2.y;
+
+        let x3 = self.v3.x;
+        let y3 = self.v3.y;
+
+        let matrix_a = Matrix2::new(x3 - x1, y3 - y1, x2 - x1, y2 - y1);
+
+        if !matrix_a.is_invertible() {
+            panic!("Triangle has no circumcircle. Vertices might be colinear.");
+        }
+
+        let matrix_a_inv = matrix_a.try_inverse().unwrap();
+
+        let matrix_b = Matrix2x1::new(
+            x3.powi(2) - x1.powi(2) + y3.powi(2) - y1.powi(2),
+            x2.powi(2) - x1.powi(2) + y2.powi(2) - y1.powi(2),
+        );
+
+        let center_matrix = 0.5 * matrix_a_inv * matrix_b;
+
+        let xc = center_matrix[0];
+        let yc = center_matrix[1];
+
+        return Rc::new(Vertex::new(xc, yc));
+    }
+
+    pub fn quality_ratio(&self) -> f64 {
+        /* 
+            Let a,b,c be the sides of a triangle, and A its area.
+            Then radius is given by:
+
+                R = a*b*c / (4*A)
+
+            thus, radius-edge ration may be evaluated by:
+
+                ratio = R / l_min = rem(a,b,c \ l_min) / (4*A)
+        */
+        let a = distance(&self.v1, &self.v2);
+        let b = distance(&self.v2, &self.v3);
+        let c = distance(&self.v3, &self.v1);
+
+        let area = self.area();
+
+        if a <= b && a <= c {
+            return b*c / (4.0 * area);
+        } else if b <= c {
+            return a*c / (4.0 * area);
+        } else {
+            return a*b / (4.0 * area);
         }
     }
 }
@@ -185,5 +251,89 @@ mod area {
         let v3 = Rc::new(Vertex::new_ghost());
         let t1 = Triangle::new(&v1, &v2, &v3);
         assert_eq!(t1.area(), 0.0);
+    }
+}
+
+#[cfg(test)]
+mod circumcenter {
+    use super::*;
+
+    #[test]
+    fn test_vertices_order() {
+        let v1 = Rc::new(Vertex::new(0.0, 0.0));
+        let v2 = Rc::new(Vertex::new(1.0, 0.0));
+        let v3 = Rc::new(Vertex::new(1.0, 1.0));
+
+        let triangle = Triangle::new(&v1, &v2, &v3);
+        let circumcenter = triangle.circumcenter();
+        assert_eq!(circumcenter.x, 0.5);
+        assert_eq!(circumcenter.y, 0.5);
+
+        let triangle = Triangle::new(&v2, &v3, &v1);
+        let circumcenter = triangle.circumcenter();
+        assert_eq!(circumcenter.x, 0.5);
+        assert_eq!(circumcenter.y, 0.5);
+
+        let triangle = Triangle::new(&v3, &v1, &v2);
+        let circumcenter = triangle.circumcenter();
+        assert_eq!(circumcenter.x, 0.5);
+        assert_eq!(circumcenter.y, 0.5);
+
+        let triangle = Triangle::new(&v1, &v3, &v2);
+        let circumcenter = triangle.circumcenter();
+        assert_eq!(circumcenter.x, 0.5);
+        assert_eq!(circumcenter.y, 0.5);
+    }
+
+    #[test]
+    fn test_equilateral() {
+        let v1 = Rc::new(Vertex::new(0.0, 0.0));
+        let v2 = Rc::new(Vertex::new(1.0, 0.0));
+        let v3 = Rc::new(Vertex::new(0.5, 0.86602540378));
+
+        let triangle = Triangle::new(&v1, &v2, &v3);
+        let circumcenter = triangle.circumcenter();
+        assert!((circumcenter.x - 0.5).abs() < 0.00000001);
+        assert!((circumcenter.y - 0.28867513459).abs() < 0.00000001);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_panics_if_colinear() {
+        let v1 = Rc::new(Vertex::new(0.0, 0.0));
+        let v2 = Rc::new(Vertex::new(1.0, 0.0));
+        let v3 = Rc::new(Vertex::new(0.5, 0.0));
+
+        let triangle = Triangle::new(&v1, &v2, &v3);
+        triangle.circumcenter();
+    }
+}
+
+#[cfg(test)]
+mod quality_ratio {
+    use super::*;
+
+    #[test]
+    fn test_quality_equilateral() {
+        let v1 = Rc::new(Vertex::new(0.0, 0.0));
+        let v2 = Rc::new(Vertex::new(1.0, 0.0));
+        let v3 = Rc::new(Vertex::new(0.5, 0.86602540378));
+
+        let triangle = Triangle::new(&v1, &v2, &v3);
+        let ratio = triangle.quality_ratio();
+
+        assert!((ratio - 0.5773502691903656).abs() < 0.00000001);
+    }
+
+    #[test]
+    fn test_quality_isosceles_rectangle() {
+        let v1 = Rc::new(Vertex::new(0.0, 0.0));
+        let v2 = Rc::new(Vertex::new(1.0, 0.0));
+        let v3 = Rc::new(Vertex::new(1.0, 1.0));
+
+        let triangle = Triangle::new(&v1, &v2, &v3);
+        let ratio = triangle.quality_ratio();
+
+        assert!((ratio - 0.7071067811865476).abs() < 0.00000001);
     }
 }
