@@ -1,6 +1,7 @@
 mod vertex;
-mod orientation;
 mod distance;
+mod edge;
+mod orientation;
 mod continence;
 mod triangle;
 mod triangulation;
