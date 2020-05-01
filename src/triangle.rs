@@ -5,7 +5,6 @@ use crate::distance::*;
 use crate::edge::*;
 use crate::orientation::*;
 use crate::vertex::*;
-use nalgebra::{Matrix2, Matrix2x1, Matrix3};
 
 use std::cmp::Eq;
 use std::fmt;
@@ -171,22 +170,6 @@ mod ghost_triangle {
         /* no ghost vertext => not a ghost triangle */
         let t1 = Triangle::new(&v1, &v2, &v3);
         assert!(!t1.is_ghost());
-    }
-}
-
-#[cfg(test)]
-mod structure {
-    use super::*;
-
-    #[test]
-    fn test_allows_two_triangles_with_same_vertices() {
-        let v1 = Rc::new(Vertex::new(0.0, 0.0));
-        let v2 = Rc::new(Vertex::new(2.0, 0.0));
-        let v3 = Rc::new(Vertex::new(0.0, 2.0));
-        let v4 = Rc::new(Vertex::new(2.0, 2.0));
-
-        let t1 = Triangle::new(&v1, &v2, &v3);
-        let t2 = Triangle::new(&v1, &v2, &v4);
     }
 }
 

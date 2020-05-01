@@ -234,7 +234,7 @@ impl Triangulator {
             vertices_set.insert(Rc::clone(&triangle.v3));
         }
 
-        let mut vertices_vec: Vec<Rc<Vertex>> = vertices_set
+        let vertices_vec: Vec<Rc<Vertex>> = vertices_set
             .iter()
             .filter(|&possible| *possible != vertex)
             .cloned()
@@ -305,7 +305,7 @@ impl Triangulator {
         return Triangulation::from(coordinates, triangle_index_array);
     }
 
-    fn vertices_size(&self) -> usize {
+    pub fn vertices_size(&self) -> usize {
         let mut vertices_set: HashSet<Rc<Vertex>> = self.vertices.iter().cloned().collect();
         for triangle in self.triangles.iter() {
             vertices_set.insert(Rc::clone(&triangle.v1));
@@ -319,7 +319,7 @@ impl Triangulator {
             .count();
     }
 
-    fn triangles_size(&self) -> usize {
+    pub fn triangles_size(&self) -> usize {
         let mut triangles_set: HashSet<Rc<Triangle>> = self.triangles.iter().cloned().collect();
 
         for triangle in self.conflict_map.keys() {
