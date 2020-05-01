@@ -341,7 +341,7 @@ impl Triangulator {
 
         /* Loops until 3 non colinear vertices are found */
         loop {
-            match orient_2d(&v1, &v2, &v3) {
+            match orientation(&v1, &v2, &v3) {
                 Orientation::Counterclockwise => {
                     break;
                 }

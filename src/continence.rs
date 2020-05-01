@@ -14,7 +14,7 @@ pub enum Continence {
  * Checks whether Vertex d is contained by the circumcircle defined by triangle(a,b,c).
  * Vertices a, b and c must be in counterclockwise order.
  */
-pub fn in_circle(a: &Vertex, b: &Vertex, c: &Vertex, d: &Vertex) -> Continence {
+pub fn continence(a: &Vertex, b: &Vertex, c: &Vertex, d: &Vertex) -> Continence {
     let matrix = Matrix4::new(
         a.x, a.y, a.x.powi(2) + a.y.powi(2), 1.0,
         b.x, b.y, b.x.powi(2) + b.y.powi(2), 1.0,
@@ -43,7 +43,7 @@ mod in_circle {
         let p2 = Vertex::new(1.0, 0.0);
         let p3 = Vertex::new(1.0, 1.0);
         let p4 = Vertex::new(0.6, 0.5);
-        assert_eq!(in_circle(&p1, &p2, &p3, &p4), Continence::Inside);
+        assert_eq!(continence(&p1, &p2, &p3, &p4), Continence::Inside);
     }
     
     #[test]
@@ -52,7 +52,7 @@ mod in_circle {
         let p2 = Vertex::new(1.0, 0.0);
         let p3 = Vertex::new(1.0, 1.0);
         let p4 = Vertex::new(0.0, 2.0);
-        assert_eq!(in_circle(&p1, &p2, &p3, &p4), Continence::Outside);
+        assert_eq!(continence(&p1, &p2, &p3, &p4), Continence::Outside);
     }
     
     #[test]
@@ -61,6 +61,6 @@ mod in_circle {
         let p2 = Vertex::new(1.0, 0.0);
         let p3 = Vertex::new(1.0, 1.0);
         let p4 = Vertex::new(0.0, 1.0);
-        assert_eq!(in_circle(&p1, &p2, &p3, &p4), Continence::Boundary);
+        assert_eq!(continence(&p1, &p2, &p3, &p4), Continence::Boundary);
     }
 }

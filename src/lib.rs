@@ -1,9 +1,13 @@
-mod vertex;
+pub mod vertex;
 mod distance;
-mod edge;
+mod area;
+mod circumcenter;
 mod orientation;
 mod continence;
-mod triangle;
-mod triangulation;
+mod encroachment;
+pub mod edge;
+pub mod triangle;
+pub mod triangulation;
 
-mod triangulator;
+pub mod triangulator;
+

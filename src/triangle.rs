@@ -1,3 +1,5 @@
+use crate::area::*;
+use crate::circumcenter::*;
 use crate::continence::*;
 use crate::distance::*;
 use crate::edge::*;
@@ -55,10 +57,7 @@ impl Triangle {
         if self.is_ghost() {
             return 0.0;
         }
-        let matrix = Matrix3::new(
-            self.v1.x, self.v1.y, 1.0, self.v2.x, self.v2.y, 1.0, self.v3.x, self.v3.y, 1.0,
-        );
-        return matrix.determinant() / 2.0;
+        return area(&self.v1, &self.v2, &self.v3);
     }
 
     pub fn encircles(&self, vertex: &Vertex) -> Continence {
@@ -66,14 +65,14 @@ impl Triangle {
             /*
                v1, v2, v3 are supposed to match counterclockwise, when created.
             */
-            return in_circle(&self.v1, &self.v2, &self.v3, vertex);
+            return continence(&self.v1, &self.v2, &self.v3, vertex);
         } else {
             /*
                The set of ghost triangles surround the convex hull with solid edges
                in counterclockwise direction. The first two vertices have the outer
                space in counterclockwise direction, as the ghost is always outside.
             */
-            match orient_2d(&self.v1, &self.v2, &vertex) {
+            match orientation(&self.v1, &self.v2, &vertex) {
                 Orientation::Counterclockwise => return Continence::Inside,
                 _ => return Continence::Outside,
             }
@@ -81,42 +80,7 @@ impl Triangle {
     }
 
     pub fn circumcenter(&self) -> Rc<Vertex> {
-        /*
-            Let (x1,y1), (x2,y2), (x3,y3) be the vertices of a triangle.self
-                then (xc,yc) is the circumcenter, if it exists:
-
-            [xc] =  1/2  * [x3^2 - x1^2 + y3^2 - y1^2] * [x3-x1 y3-y1] ^ -1
-            [yc] =         [x2^2 - x1^2 + y2^2 - y1^2] * [x2-x1 y2-y1]
-        */
-
-        let x1 = self.v1.x;
-        let y1 = self.v1.y;
-
-        let x2 = self.v2.x;
-        let y2 = self.v2.y;
-
-        let x3 = self.v3.x;
-        let y3 = self.v3.y;
-
-        let matrix_a = Matrix2::new(x3 - x1, y3 - y1, x2 - x1, y2 - y1);
-
-        if !matrix_a.is_invertible() {
-            panic!("Triangle has no circumcircle. Vertices might be colinear.");
-        }
-
-        let matrix_a_inv = matrix_a.try_inverse().unwrap();
-
-        let matrix_b = Matrix2x1::new(
-            x3.powi(2) - x1.powi(2) + y3.powi(2) - y1.powi(2),
-            x2.powi(2) - x1.powi(2) + y2.powi(2) - y1.powi(2),
-        );
-
-        let center_matrix = 0.5 * matrix_a_inv * matrix_b;
-
-        let xc = center_matrix[0];
-        let yc = center_matrix[1];
-
-        return Rc::new(Vertex::new(xc, yc));
+        return Rc::new(circumcenter(&self.v1, &self.v2, &self.v3));
     }
 
     pub fn quality_ratio(&self) -> f64 {
@@ -152,7 +116,7 @@ impl Triangle {
 
         return (e1, e2, e3);
     }
-    
+
     pub fn outer_edges(&self) -> (Rc<Edge>, Rc<Edge>, Rc<Edge>) {
         let e1 = Rc::new(Edge::new(&self.v2, &self.v1));
         let e2 = Rc::new(Edge::new(&self.v3, &self.v2));
@@ -245,84 +209,6 @@ mod encircles {
 
         let v4 = Rc::new(Vertex::new(1.0, 1.0));
         assert_eq!(t1.encircles(&v4), Continence::Boundary);
-    }
-}
-
-#[cfg(test)]
-mod area {
-    use super::*;
-
-    #[test]
-    fn test_area() {
-        let v1 = Rc::new(Vertex::new(0.0, 0.0));
-        let v2 = Rc::new(Vertex::new(1.0, 0.0));
-        let v3 = Rc::new(Vertex::new(0.0, 1.0));
-        let t1 = Triangle::new(&v1, &v2, &v3);
-        assert_eq!(t1.area(), 0.5);
-    }
-
-    #[test]
-    fn test_ghost_triangle_area_is_zero() {
-        let v1 = Rc::new(Vertex::new(0.0, 0.0));
-        let v2 = Rc::new(Vertex::new(1.0, 0.0));
-        let v3 = Rc::new(Vertex::new_ghost());
-        let t1 = Triangle::new(&v1, &v2, &v3);
-        assert_eq!(t1.area(), 0.0);
-    }
-}
-
-#[cfg(test)]
-mod circumcenter {
-    use super::*;
-
-    #[test]
-    fn test_vertices_order() {
-        let v1 = Rc::new(Vertex::new(0.0, 0.0));
-        let v2 = Rc::new(Vertex::new(1.0, 0.0));
-        let v3 = Rc::new(Vertex::new(1.0, 1.0));
-
-        let triangle = Triangle::new(&v1, &v2, &v3);
-        let circumcenter = triangle.circumcenter();
-        assert_eq!(circumcenter.x, 0.5);
-        assert_eq!(circumcenter.y, 0.5);
-
-        let triangle = Triangle::new(&v2, &v3, &v1);
-        let circumcenter = triangle.circumcenter();
-        assert_eq!(circumcenter.x, 0.5);
-        assert_eq!(circumcenter.y, 0.5);
-
-        let triangle = Triangle::new(&v3, &v1, &v2);
-        let circumcenter = triangle.circumcenter();
-        assert_eq!(circumcenter.x, 0.5);
-        assert_eq!(circumcenter.y, 0.5);
-
-        let triangle = Triangle::new(&v1, &v3, &v2);
-        let circumcenter = triangle.circumcenter();
-        assert_eq!(circumcenter.x, 0.5);
-        assert_eq!(circumcenter.y, 0.5);
-    }
-
-    #[test]
-    fn test_equilateral() {
-        let v1 = Rc::new(Vertex::new(0.0, 0.0));
-        let v2 = Rc::new(Vertex::new(1.0, 0.0));
-        let v3 = Rc::new(Vertex::new(0.5, 0.86602540378));
-
-        let triangle = Triangle::new(&v1, &v2, &v3);
-        let circumcenter = triangle.circumcenter();
-        assert!((circumcenter.x - 0.5).abs() < 0.00000001);
-        assert!((circumcenter.y - 0.28867513459).abs() < 0.00000001);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_panics_if_colinear() {
-        let v1 = Rc::new(Vertex::new(0.0, 0.0));
-        let v2 = Rc::new(Vertex::new(1.0, 0.0));
-        let v3 = Rc::new(Vertex::new(0.5, 0.0));
-
-        let triangle = Triangle::new(&v1, &v2, &v3);
-        triangle.circumcenter();
     }
 }
 

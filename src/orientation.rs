@@ -14,7 +14,7 @@ pub enum Orientation {
  * Checks whether Vertices a, b and c are in counterclockwise order, 
  * in the circumcircle they define.
  */
-pub fn orient_2d(a: &Vertex, b: &Vertex, c: &Vertex) -> Orientation {
+pub fn orientation(a: &Vertex, b: &Vertex, c: &Vertex) -> Orientation {
     let matrix = Matrix3::new(
         a.x, a.y, 1.0, 
         b.x, b.y, 1.0, 
@@ -32,7 +32,7 @@ pub fn orient_2d(a: &Vertex, b: &Vertex, c: &Vertex) -> Orientation {
 }
 
 #[cfg(test)]
-mod orient_2d {
+mod orientation {
     use super::*;
 
     #[test]
@@ -40,7 +40,7 @@ mod orient_2d {
         let p1 = Vertex::new(0.0, 0.0);
         let p2 = Vertex::new(1.0, 0.0);
         let p3 = Vertex::new(0.0, 1.0);
-        assert_eq!(orient_2d(&p1, &p2, &p3), Orientation::Counterclockwise);
+        assert_eq!(orientation(&p1, &p2, &p3), Orientation::Counterclockwise);
     }
     
     #[test]
@@ -48,7 +48,7 @@ mod orient_2d {
         let p1 = Vertex::new(0.0, 0.0);
         let p2 = Vertex::new(0.0, 1.0);
         let p3 = Vertex::new(1.0, 0.0);
-        assert_eq!(orient_2d(&p1, &p2, &p3), Orientation::Clockwise);
+        assert_eq!(orientation(&p1, &p2, &p3), Orientation::Clockwise);
     }
     
     #[test]
@@ -56,6 +56,6 @@ mod orient_2d {
         let p1 = Vertex::new(0.0, 0.0);
         let p2 = Vertex::new(1.0, 1.0);
         let p3 = Vertex::new(2.0, 2.0);
-        assert_eq!(orient_2d(&p1, &p2, &p3), Orientation::Colinear);
+        assert_eq!(orientation(&p1, &p2, &p3), Orientation::Colinear);
     }
 }
