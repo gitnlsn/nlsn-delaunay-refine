@@ -1,10 +1,14 @@
-use crate::area::*;
-use crate::circumcenter::*;
-use crate::continence::*;
-use crate::distance::*;
-use crate::edge::*;
-use crate::orientation::*;
-use crate::vertex::*;
+use crate::properties::{
+    area::*,
+    continence::*,
+    distance::*,
+    circumcenter::*,
+    orientation::*,
+};
+use crate::elements::{
+    edge::*,
+    vertex::*,
+};
 
 use std::cmp::Eq;
 use std::fmt;

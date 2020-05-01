@@ -1,10 +1,16 @@
-use crate::vertex::*;
-use crate::edge::*;
-use crate::triangle::*;
-use crate::triangulation::*;
+use crate::properties::{
+    continence::*,
+    orientation::*,
+};
 
-use crate::continence::*;
-use crate::orientation::*;
+use crate::elements::{
+    vertex::*,
+    edge::*,
+    triangle::*,
+};
+
+use crate::planar::triangulation::*;
+
 
 use std::collections::HashMap;
 use std::collections::HashSet;

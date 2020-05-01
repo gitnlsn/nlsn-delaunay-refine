@@ -1,7 +1,9 @@
-use crate::continence::*;
-use crate::encroachment::*;
-use crate::distance::*;
-use crate::vertex::*;
+use crate::properties::{
+    continence::*,
+    encroachment::*,
+    distance::*,
+};
+use crate::elements::vertex::*;
 use std::rc::Rc;
 
 use std::hash::Hash;

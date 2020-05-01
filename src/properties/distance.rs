@@ -1,4 +1,4 @@
-use crate::vertex::*;
+use crate::elements::vertex::*;
 
 pub fn distance(v1: &Vertex, v2: &Vertex) -> f64 {
     ((v1.x - v2.x).powi(2) + (v1.y - v2.y).powi(2)).sqrt()

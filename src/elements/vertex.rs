@@ -1,9 +1,9 @@
 use num::Float;
 use std::cmp::Ordering;
 use std::fmt;
+use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
-use std::fmt::Debug;
 
 #[derive(Debug)]
 pub struct Vertex {
@@ -18,7 +18,7 @@ impl Hash for Vertex {
         m.hash(state);
         e.hash(state);
         s.hash(state);
-        
+
         let (m, e, s) = Float::integer_decode(self.y);
         m.hash(state);
         e.hash(state);

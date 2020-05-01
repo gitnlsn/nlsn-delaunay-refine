@@ -1,4 +1,4 @@
-use crate::vertex::*;
+use crate::elements::vertex::*;
 use nalgebra::Matrix3;
 
 pub fn area(v1: &Vertex, v2: &Vertex, v3: &Vertex) -> f64 {

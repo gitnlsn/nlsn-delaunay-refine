@@ -1,24 +1,36 @@
-/* Elementary data models */
-mod vertex;
-mod edge;
-mod triangle;
+/* Elementary geometric elements */
+mod elements {
+    pub mod vertex;
+    pub mod edge;
+    pub mod triangle;
+}
 
-/* Behaviour exported implementation */
-mod distance;
-mod area;
-mod circumcenter;
-mod orientation;
-mod continence;
-mod encroachment;
+/* Geometric Behaviour/properties implementation */
+mod properties {
+    pub mod area;
+    pub mod distance;
+    pub mod circumcenter;
+    pub mod orientation;
+    pub mod continence;
+    pub mod encroachment;
+}
 
 /* Data structure that resumes lib main output */
-mod triangulation;
+mod planar {
+    pub mod triangulation;
+    pub mod triangulator;
+}
 
-/* Triangulation algorithm and utilities */
-mod triangulator;
+// ================= //
+//      EXPORTS      //
+// ================= //
+pub use crate::elements::{
+    vertex::Vertex,
+    edge::Edge,
+    triangle::Triangle,
+};
 
-pub use crate::vertex::Vertex;
-pub use crate::edge::Edge;
-pub use crate::triangle::Triangle;
-pub use crate::triangulation::Triangulation;
-pub use crate::triangulator::Triangulator;
+pub use crate::planar::{
+    triangulation::Triangulation,
+    triangulator::Triangulator,
+};

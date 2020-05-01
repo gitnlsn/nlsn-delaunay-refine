@@ -1,5 +1,5 @@
-use crate::continence::*;
-use crate::vertex::*;
+use crate::properties::continence::*;
+use crate::elements::vertex::*;
 
 pub fn encroach(v1: &Vertex, v2: &Vertex, vertex: &Vertex) -> Continence {
     let x = vertex.x;

@@ -1,4 +1,4 @@
-use crate::vertex::*;
+use crate::elements::vertex::*;
 use nalgebra::{Matrix2, Matrix2x1};
 
 pub fn circumcenter(v1: &Vertex, v2: &Vertex, v3: &Vertex) -> Vertex {
