@@ -1,10 +1,23 @@
 [package]
-name = "nlsn-delaunay-refine"
+name = "nlsn-delaunay"
 version = "0.1.0"
 authors = ["nelson kenzo tamashiro <nelsonkenzotamashiro@gmail.com>"]
+description = "Delaunay Triangulation and Refinement implementation through Bowyer Watson incremental insertion, conflict maps and ghost vertices."
+homepage = "https://github.com/nelsonatgithub/nlsn-delaunay-refine"
+documentation = "https://github.com/nelsonatgithub/nlsn-delaunay-refine"
+repository = "https://github.com/nelsonatgithub/nlsn-delaunay-refine"
+readme = "https://github.com/nelsonatgithub/nlsn-delaunay-refine/README.md"
+license = "GNU v3.0 2007-06-29"
+license-file = "https://github.com/nelsonatgithub/nlsn-delaunay-refine/LICENCE"
+keywords = ["triangulation", "delaunay", "Bowyer Watson", "incremental insertion", "refinement", "mesh", "conflict map", "ghost triangles"]
+categories = ["algorithms", "embedded", "graphics", "gui", "mathematics", "science", "simulation", "wasm"]
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[badges]
+codecov = { repository = "https://github.com/nelsonatgithub/nlsn-delaunay-refine", branch = "dev", service = "github" }
+coveralls = { repository = "https://github.com/nelsonatgithub/nlsn-delaunay-refine", branch = "dev", service = "github" }
+is-it-maintained-issue-resolution = { repository = "https://github.com/nelsonatgithub/nlsn-delaunay-refine" }
+is-it-maintained-open-issues = { repository = "https://github.com/nelsonatgithub/nlsn-delaunay-refine" }
 
 [dependencies]
 nalgebra = "0.20"

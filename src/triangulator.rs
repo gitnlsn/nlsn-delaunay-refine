@@ -1,9 +1,11 @@
-use crate::continence::*;
+use crate::vertex::*;
 use crate::edge::*;
-use crate::orientation::*;
 use crate::triangle::*;
 use crate::triangulation::*;
-use crate::vertex::*;
+
+use crate::continence::*;
+use crate::orientation::*;
+
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fmt;
