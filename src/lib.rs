@@ -1,7 +1,7 @@
 /* Elementary data models */
-pub mod vertex;
-pub mod edge;
-pub mod triangle;
+mod vertex;
+mod edge;
+mod triangle;
 
 /* Behaviour exported implementation */
 mod distance;
@@ -12,7 +12,13 @@ mod continence;
 mod encroachment;
 
 /* Data structure that resumes lib main output */
-pub mod triangulation;
+mod triangulation;
 
 /* Triangulation algorithm and utilities */
-pub mod triangulator;
+mod triangulator;
+
+pub use crate::vertex::Vertex;
+pub use crate::edge::Edge;
+pub use crate::triangle::Triangle;
+pub use crate::triangulation::Triangulation;
+pub use crate::triangulator::Triangulator;

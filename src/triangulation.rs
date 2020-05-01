@@ -31,7 +31,6 @@ impl fmt::Display for Triangulation {
             let v3 = self.triangles.get(index * 3 + 2).unwrap();
             write!(formatter, "{} {} {}\n", v1, v2, v3);
         }
-        write!(formatter, "\n");
 
         return write!(formatter, "");
     }
