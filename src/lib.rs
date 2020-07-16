@@ -3,6 +3,7 @@ mod elements {
     pub mod vertex;
     pub mod edge;
     pub mod triangle;
+    pub mod bounding_box;
 }
 
 /* Geometric Behaviour/properties implementation */

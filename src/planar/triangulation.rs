@@ -1,5 +1,15 @@
 use std::fmt;
 
+/**
+ * Triangulation is defined by point coordinates and triangle indices.
+ *  - Each pair of f64 values in coordinates Vec<f64> define the (x,y) 
+ * coordiates of a point.
+ *  - Each index in triangles Vec<usize> points to a (x,y) coordinate.
+ *  - Every three indices in triangles Vec<usize> define a triangle by 
+ * its coordinates.
+ *  - Coordinates Vec must be 2*n, where n is the quantity of points.
+ *  - Triangles Vec must be 3*t, where t is the quantity of triangles.
+ */
 pub struct Triangulation {
     pub coordinates: Vec<f64>,
     pub triangles: Vec<usize>,
