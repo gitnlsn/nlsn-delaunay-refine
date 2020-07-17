@@ -4,6 +4,7 @@ mod elements {
     pub mod edge;
     pub mod triangle;
     pub mod bounding_box;
+    pub mod polyline;
 }
 
 /* Geometric Behaviour/properties implementation */
@@ -30,6 +31,7 @@ pub use crate::elements::{
     vertex::Vertex,
     edge::Edge,
     triangle::Triangle,
+    polyline::Polyline,
 };
 
 pub use crate::planar::{

@@ -169,3 +169,18 @@ mod build_from_coordinates {
         Vertex::from_coordinates(&raw_array);
     }
 }
+
+#[cfg(test)]
+mod vertex_identity {
+    use super::*;
+
+    #[test]
+    fn test_two_different_object_with_same_coordinates() {
+        let v1 = Vertex::new(1.0, 1.0);
+        let v2 = Vertex::new(1.0, 1.0);
+        let v3 = Vertex::new(1.0, 1.1);
+
+        assert!(v1 == v2);
+        assert!(v1 != v3);
+    }
+}

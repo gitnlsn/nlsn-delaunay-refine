@@ -35,6 +35,13 @@ impl BoundingBox {
         });
     }
 
+    pub fn contains(&self, vertex: &Vertex) -> bool {
+        let x_intersection: bool = vertex.x <= self.destin.x && vertex.x >= self.origin.x;
+        let y_intersection: bool = vertex.y <= self.destin.y && vertex.y >= self.origin.y;
+
+        return x_intersection && y_intersection;
+    }
+
     pub fn intersection(b1: &Self, b2: &Self) -> Option<Self> {
         let lower_x: f64 = max(b1.origin.x, b2.origin.x);
         let upper_x: f64 = min(b1.destin.x, b2.destin.x);
@@ -168,7 +175,7 @@ mod intersection {
         assert_eq!(intersection_bbox.origin.y, 3.0);
         assert_eq!(intersection_bbox.destin.x, 3.0);
         assert_eq!(intersection_bbox.destin.y, 4.0);
-        
+
         /* horizontal line intersection */
         let v1 = Rc::new(Vertex::new(0.0, 0.0));
         let v2 = Rc::new(Vertex::new(3.0, 4.0));
