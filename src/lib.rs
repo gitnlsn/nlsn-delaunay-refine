@@ -14,6 +14,7 @@ mod properties {
     pub mod orientation;
     pub mod continence;
     pub mod encroachment;
+    pub mod intersection;
 }
 
 /* Data structure that resumes lib main output */

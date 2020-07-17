@@ -1,5 +1,3 @@
-use crate::elements::edge::*;
-use crate::elements::triangle::*;
 use crate::elements::vertex::*;
 
 use std::rc::Rc;
@@ -37,19 +35,6 @@ impl BoundingBox {
         });
     }
 
-    pub fn from_edge(edge: &Edge) -> Self {
-        return Self::from_vertices(vec![Rc::clone(&edge.v1), Rc::clone(&edge.v2)]).unwrap();
-    }
-
-    pub fn from_triangle(triangle: &Triangle) -> Self {
-        return Self::from_vertices(vec![
-            Rc::clone(&triangle.v1),
-            Rc::clone(&triangle.v2),
-            Rc::clone(&triangle.v3),
-        ])
-        .unwrap();
-    }
-
     pub fn intersection(b1: &Self, b2: &Self) -> Option<Self> {
         let lower_x: f64 = max(b1.origin.x, b2.origin.x);
         let upper_x: f64 = min(b1.destin.x, b2.destin.x);
@@ -69,7 +54,7 @@ impl BoundingBox {
         return None;
     }
 
-    pub fn inclusion(b1: &BoundingBox, b2: BoundingBox) -> Self {
+    pub fn union(b1: &BoundingBox, b2: BoundingBox) -> Self {
         let lower_x: f64 = min(b1.origin.x, b2.origin.x);
         let upper_x: f64 = max(b1.destin.x, b2.destin.x);
         let lower_y: f64 = min(b1.origin.y, b2.origin.y);
@@ -81,7 +66,7 @@ impl BoundingBox {
         };
     }
 
-    pub fn inclusion_list(box_list: Vec<BoundingBox>) -> Option<Self> {
+    pub fn union_list(box_list: Vec<BoundingBox>) -> Option<Self> {
         if box_list.is_empty() {
             return None;
         }
@@ -149,27 +134,6 @@ mod intersection {
     }
 
     #[test]
-    fn test_from_edge() {
-        let v1 = Rc::new(Vertex::new(0.0, 0.0));
-        let v2 = Rc::new(Vertex::new(3.0, 4.0));
-
-        let bbox = BoundingBox::from_edge(&Edge::new(&v1, &v2));
-
-        assert_eq!(bbox.origin.x, 0.0);
-        assert_eq!(bbox.origin.y, 0.0);
-        assert_eq!(bbox.destin.x, 3.0);
-        assert_eq!(bbox.destin.y, 4.0);
-
-        /* now invert vertex order */
-        let bbox = BoundingBox::from_edge(&Edge::new(&v2, &v1));
-
-        assert_eq!(bbox.origin.x, 0.0);
-        assert_eq!(bbox.origin.y, 0.0);
-        assert_eq!(bbox.destin.x, 3.0);
-        assert_eq!(bbox.destin.y, 4.0);
-    }
-
-    #[test]
     fn test_intersection() {
         let v1 = Rc::new(Vertex::new(0.0, 0.0));
         let v2 = Rc::new(Vertex::new(3.0, 4.0));
@@ -188,6 +152,41 @@ mod intersection {
     }
 
     #[test]
+    fn test_intersection_line() {
+        /* vertical line intersection */
+        let v1 = Rc::new(Vertex::new(0.0, 0.0));
+        let v2 = Rc::new(Vertex::new(3.0, 4.0));
+        let v3 = Rc::new(Vertex::new(3.0, 3.0));
+        let v4 = Rc::new(Vertex::new(5.0, 6.0));
+
+        let b1 = BoundingBox::from_vertices(vec![v1, v2]).unwrap();
+        let b2 = BoundingBox::from_vertices(vec![v3, v4]).unwrap();
+
+        let intersection_bbox = BoundingBox::intersection(&b1, &b2).unwrap();
+
+        assert_eq!(intersection_bbox.origin.x, 3.0);
+        assert_eq!(intersection_bbox.origin.y, 3.0);
+        assert_eq!(intersection_bbox.destin.x, 3.0);
+        assert_eq!(intersection_bbox.destin.y, 4.0);
+        
+        /* horizontal line intersection */
+        let v1 = Rc::new(Vertex::new(0.0, 0.0));
+        let v2 = Rc::new(Vertex::new(3.0, 4.0));
+        let v3 = Rc::new(Vertex::new(2.0, 4.0));
+        let v4 = Rc::new(Vertex::new(5.0, 6.0));
+
+        let b1 = BoundingBox::from_vertices(vec![v1, v2]).unwrap();
+        let b2 = BoundingBox::from_vertices(vec![v3, v4]).unwrap();
+
+        let intersection_bbox = BoundingBox::intersection(&b1, &b2).unwrap();
+
+        assert_eq!(intersection_bbox.origin.x, 2.0);
+        assert_eq!(intersection_bbox.origin.y, 4.0);
+        assert_eq!(intersection_bbox.destin.x, 3.0);
+        assert_eq!(intersection_bbox.destin.y, 4.0);
+    }
+
+    #[test]
     fn test_inclusion() {
         let v1 = Rc::new(Vertex::new(0.0, 0.0));
         let v2 = Rc::new(Vertex::new(3.0, 4.0));
@@ -197,7 +196,7 @@ mod intersection {
         let b1 = BoundingBox::from_vertices(vec![v1, v2]).unwrap();
         let b2 = BoundingBox::from_vertices(vec![v3, v4]).unwrap();
 
-        let bbox: BoundingBox = BoundingBox::inclusion_list(vec![b1, b2]).unwrap();
+        let bbox: BoundingBox = BoundingBox::union_list(vec![b1, b2]).unwrap();
 
         assert_eq!(bbox.origin.x, 0.0);
         assert_eq!(bbox.origin.y, 0.0);
