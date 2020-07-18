@@ -1,16 +1,8 @@
-use crate::properties::{
-    continence::*,
-    orientation::*,
-};
+use crate::properties::{continence::*, orientation::*};
 
-use crate::elements::{
-    vertex::*,
-    edge::*,
-    triangle::*,
-};
+use crate::elements::{edge::*, triangle::*, vertex::*};
 
 use crate::planar::triangulation::*;
-
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -122,7 +114,7 @@ impl Triangulator {
 
         let ghost_vertex = Rc::new(Vertex::new_ghost());
 
-        /* 
+        /*
             0-depth triangles are removed
             At boundary, Ghost triangles are inserted.
             Inner edges are added to the pending list.
@@ -132,7 +124,7 @@ impl Triangulator {
             if let Some(inner_triangle) = self.adjacency.get(&edge_to_hole) {
                 let triangle_to_remove: Rc<Triangle> = Rc::clone(inner_triangle);
                 self.remove_triangle(&triangle_to_remove);
-                
+
                 let (e1, e2, e3) = triangle_to_remove.inner_edges();
                 if !edges_list.contains(&e1) {
                     pending_edges.push(Rc::new(e1.opposite()));
@@ -145,8 +137,8 @@ impl Triangulator {
                 }
             }
 
-            /* 
-                Due to the ghost triangle, 
+            /*
+                Due to the ghost triangle,
                 a vertex insertion in the hole results in filling the hole.
             */
             let ghost_triangle = Rc::new(Triangle::new(
@@ -157,7 +149,7 @@ impl Triangulator {
             self.include_triangle(&ghost_triangle);
         }
 
-        /* 
+        /*
             Flood fill
             actual deepth triangles are removed if they exist
             backward deepth is longer connected by adjacency
@@ -173,7 +165,7 @@ impl Triangulator {
             if let Some(inner_triangle) = self.adjacency.get(&edge_to_hole) {
                 let triangle_to_remove: Rc<Triangle> = Rc::clone(inner_triangle);
                 self.remove_triangle(&triangle_to_remove);
-                
+
                 let (e1, e2, e3) = triangle_to_remove.inner_edges();
                 pending_edges.push(Rc::new(e1.opposite()));
                 pending_edges.push(Rc::new(e2.opposite()));
@@ -349,7 +341,7 @@ impl Triangulator {
 
         /* Loops until 3 non colinear vertices are found */
         loop {
-            match orientation(&v1, &v2, &v3) {
+            match orientation_triangle(&v1, &v2, &v3) {
                 Orientation::Counterclockwise => {
                     break;
                 }

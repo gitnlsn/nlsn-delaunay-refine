@@ -60,7 +60,7 @@ impl Triangle {
         if self.is_ghost() {
             return 0.0;
         }
-        return area(&self.v1, &self.v2, &self.v3);
+        return area_triangle(&self.v1, &self.v2, &self.v3);
     }
 
     pub fn encircles(&self, vertex: &Vertex) -> Continence {
@@ -75,7 +75,7 @@ impl Triangle {
                in counterclockwise direction. The first two vertices have the outer
                space in counterclockwise direction, as the ghost is always outside.
             */
-            match orientation(&self.v1, &self.v2, &vertex) {
+            match orientation_triangle(&self.v1, &self.v2, &vertex) {
                 Orientation::Counterclockwise => return Continence::Inside,
                 _ => return Continence::Outside,
             }
