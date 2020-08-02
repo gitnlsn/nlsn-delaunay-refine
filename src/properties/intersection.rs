@@ -13,23 +13,13 @@ use std::rc::Rc;
  *  - returns None if there is no intersection
  */
 pub fn intersection(
-    v1: Rc<Vertex>,
-    v2: Rc<Vertex>,
-    v3: Rc<Vertex>,
-    v4: Rc<Vertex>,
+    v1: &Rc<Vertex>,
+    v2: &Rc<Vertex>,
+    v3: &Rc<Vertex>,
+    v4: &Rc<Vertex>,
 ) -> Option<Vertex> {
-    if let Some(bbox) = intersection_region(
-        Rc::clone(&v1),
-        Rc::clone(&v2),
-        Rc::clone(&v3),
-        Rc::clone(&v4),
-    ) {
-        if let Some(vertex) = intersection_vertex(
-            Rc::clone(&v1),
-            Rc::clone(&v2),
-            Rc::clone(&v3),
-            Rc::clone(&v4),
-        ) {
+    if let Some(bbox) = intersection_region(v1, v2, v3, v4) {
+        if let Some(vertex) = intersection_vertex(v1, v2, v3, v4, &bbox) {
             let in_interval_x = vertex.x >= bbox.origin.x && vertex.x <= bbox.destin.x;
             let in_interval_y = vertex.y >= bbox.origin.y && vertex.y <= bbox.destin.y;
 
@@ -46,13 +36,13 @@ pub fn intersection(
  * Determines the possible region where a intersection may occur
  */
 fn intersection_region(
-    v1: Rc<Vertex>,
-    v2: Rc<Vertex>,
-    v3: Rc<Vertex>,
-    v4: Rc<Vertex>,
+    v1: &Rc<Vertex>,
+    v2: &Rc<Vertex>,
+    v3: &Rc<Vertex>,
+    v4: &Rc<Vertex>,
 ) -> Option<BoundingBox> {
-    let e1_vertices: Vec<Rc<Vertex>> = vec![v1, v2];
-    let e2_vertices: Vec<Rc<Vertex>> = vec![v3, v4];
+    let e1_vertices: Vec<Rc<Vertex>> = vec![Rc::clone(v1), Rc::clone(v2)];
+    let e2_vertices: Vec<Rc<Vertex>> = vec![Rc::clone(v3), Rc::clone(v4)];
 
     let e1_bbox: BoundingBox = BoundingBox::from_vertices(e1_vertices).unwrap();
     let e2_bbox: BoundingBox = BoundingBox::from_vertices(e2_vertices).unwrap();
@@ -64,10 +54,11 @@ fn intersection_region(
  * Determines the exact intersection vertex between lines
  */
 fn intersection_vertex(
-    v1: Rc<Vertex>,
-    v2: Rc<Vertex>,
-    v3: Rc<Vertex>,
-    v4: Rc<Vertex>,
+    v1: &Rc<Vertex>,
+    v2: &Rc<Vertex>,
+    v3: &Rc<Vertex>,
+    v4: &Rc<Vertex>,
+    bbox: &BoundingBox,
 ) -> Option<Vertex> {
     let x1 = v1.x;
     let y1 = v1.y;
@@ -83,16 +74,31 @@ fn intersection_vertex(
 
     let matrix_a = Matrix2::new(-(y2 - y1), x2 - x1, -(y4 - y3), x4 - x3);
 
-    if !matrix_a.is_invertible() {
-        return None;
-    }
-
-    let matrix_a_inv = matrix_a.try_inverse().unwrap();
-
     let matrix_b = Matrix2x1::new(
         y1 * (x2 - x1) - x1 * (y2 - y1),
         y3 * (x4 - x3) - x3 * (y4 - y3),
     );
+
+    if !matrix_a.is_invertible() {
+        /* Lines are coincident */
+        let possible_middle_point =
+            Matrix2x1::new((bbox.origin.x + bbox.destin.x) / 2.0, (bbox.origin.y + bbox.destin.y) / 2.0);
+
+        let eval = matrix_a * possible_middle_point - matrix_b;
+
+        if eval[0] < 1e-10 && eval[1] < 1e-10 {
+            /* Return mid-point as intersection representation */
+            return Some(Vertex::new(
+                possible_middle_point[0],
+                possible_middle_point[1],
+            ));
+        }
+
+        /* Lines are parallel */
+        return None;
+    }
+
+    let matrix_a_inv = matrix_a.try_inverse().unwrap();
 
     let intersection_matrix = matrix_a_inv * matrix_b;
 
@@ -107,75 +113,6 @@ mod intersection {
     use super::*;
 
     #[test]
-    fn test_intersection_vertex() {
-        /* 1st assertion */
-        let v1 = Rc::new(Vertex::new(0.0, 0.0));
-        let v2 = Rc::new(Vertex::new(2.0, 2.0));
-        let v3 = Rc::new(Vertex::new(2.0, 0.0));
-        let v4 = Rc::new(Vertex::new(0.0, 2.0));
-
-        let vertex = intersection_vertex(
-            Rc::clone(&v1),
-            Rc::clone(&v2),
-            Rc::clone(&v3),
-            Rc::clone(&v4),
-        )
-        .unwrap();
-
-        assert_eq!(vertex.x, 1.0);
-        assert_eq!(vertex.y, 1.0);
-
-        /* 2nd assertion */
-        let v1 = Rc::new(Vertex::new(0.0, 0.0));
-        let v2 = Rc::new(Vertex::new(2.0, 0.0));
-        let v3 = Rc::new(Vertex::new(2.0, 2.0));
-        let v4 = Rc::new(Vertex::new(0.0, 2.0));
-
-        let possible_intersection = intersection_vertex(
-            Rc::clone(&v1),
-            Rc::clone(&v2),
-            Rc::clone(&v3),
-            Rc::clone(&v4),
-        );
-
-        assert!(possible_intersection.is_none());
-
-        /* 3rd assertion */
-        let v1 = Rc::new(Vertex::new(0.0, 0.0));
-        let v2 = Rc::new(Vertex::new(1.0, 1.0));
-        let v3 = Rc::new(Vertex::new(0.0, 1.0));
-        let v4 = Rc::new(Vertex::new(0.2, 0.8));
-
-        let vertex = intersection_vertex(
-            Rc::clone(&v1),
-            Rc::clone(&v2),
-            Rc::clone(&v3),
-            Rc::clone(&v4),
-        )
-        .unwrap();
-
-        assert_eq!(vertex.x, 0.5);
-        assert_eq!(vertex.y, 0.5);
-
-        /* 4th assertion */
-        let v1 = Rc::new(Vertex::new(0.0, 0.0));
-        let v2 = Rc::new(Vertex::new(1.0, 1.0));
-        let v3 = Rc::new(Vertex::new(0.0, 1.0));
-        let v4 = Rc::new(Vertex::new(1.0, 0.7));
-
-        let vertex = intersection_vertex(
-            Rc::clone(&v1),
-            Rc::clone(&v2),
-            Rc::clone(&v3),
-            Rc::clone(&v4),
-        )
-        .unwrap();
-
-        assert_eq!(vertex.x, 0.7692307692307692);
-        assert_eq!(vertex.y, 0.7692307692307692);
-    }
-
-    #[test]
     fn test_intersection() {
         /* 1st assertion */
         let v1 = Rc::new(Vertex::new(0.0, 0.0));
@@ -183,13 +120,7 @@ mod intersection {
         let v3 = Rc::new(Vertex::new(2.0, 0.0));
         let v4 = Rc::new(Vertex::new(0.0, 2.0));
 
-        let vertex = intersection(
-            Rc::clone(&v1),
-            Rc::clone(&v2),
-            Rc::clone(&v3),
-            Rc::clone(&v4),
-        )
-        .unwrap();
+        let vertex = intersection(&v1, &v2, &v3, &v4).unwrap();
 
         assert_eq!(vertex.x, 1.0);
         assert_eq!(vertex.y, 1.0);
@@ -200,12 +131,7 @@ mod intersection {
         let v3 = Rc::new(Vertex::new(2.0, 2.0));
         let v4 = Rc::new(Vertex::new(0.0, 2.0));
 
-        let possible_intersection = intersection(
-            Rc::clone(&v1),
-            Rc::clone(&v2),
-            Rc::clone(&v3),
-            Rc::clone(&v4),
-        );
+        let possible_intersection = intersection(&v1, &v2, &v3, &v4);
 
         assert!(possible_intersection.is_none());
 
@@ -215,12 +141,7 @@ mod intersection {
         let v3 = Rc::new(Vertex::new(0.0, 1.0));
         let v4 = Rc::new(Vertex::new(0.2, 0.8));
 
-        let possible_intersection = intersection(
-            Rc::clone(&v1),
-            Rc::clone(&v2),
-            Rc::clone(&v3),
-            Rc::clone(&v4),
-        );
+        let possible_intersection = intersection(&v1, &v2, &v3, &v4);
 
         assert!(possible_intersection.is_none());
 
@@ -230,13 +151,7 @@ mod intersection {
         let v3 = Rc::new(Vertex::new(0.0, 1.0));
         let v4 = Rc::new(Vertex::new(1.0, 0.7));
 
-        let vertex = intersection(
-            Rc::clone(&v1),
-            Rc::clone(&v2),
-            Rc::clone(&v3),
-            Rc::clone(&v4),
-        )
-        .unwrap();
+        let vertex = intersection(&v1, &v2, &v3, &v4).unwrap();
 
         assert_eq!(vertex.x, 0.7692307692307692);
         assert_eq!(vertex.y, 0.7692307692307692);
@@ -249,13 +164,7 @@ mod intersection {
         let v3 = Rc::new(Vertex::new(0.0, 1.0));
         let v4 = Rc::new(Vertex::new(1.0, 0.7));
 
-        let region = intersection_region(
-            Rc::clone(&v1),
-            Rc::clone(&v2),
-            Rc::clone(&v3),
-            Rc::clone(&v4),
-        )
-        .unwrap();
+        let region = intersection_region(&v1, &v2, &v3, &v4).unwrap();
 
         assert_eq!(region.origin.x, 0.0);
         assert_eq!(region.origin.y, 0.7);
@@ -268,12 +177,7 @@ mod intersection {
         let v3 = Rc::new(Vertex::new(0.0, 2.0));
         let v4 = Rc::new(Vertex::new(1.0, 1.7));
 
-        let region = intersection_region(
-            Rc::clone(&v1),
-            Rc::clone(&v2),
-            Rc::clone(&v3),
-            Rc::clone(&v4),
-        );
+        let region = intersection_region(&v1, &v2, &v3, &v4);
 
         assert!(region.is_none());
     }

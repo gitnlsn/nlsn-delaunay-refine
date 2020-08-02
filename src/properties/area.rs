@@ -2,7 +2,7 @@ use crate::elements::vertex::*;
 use nalgebra::Matrix3;
 use std::rc::Rc;
 
-pub fn area_segments(segments_list: Vec<(Rc<Vertex>, Rc<Vertex>)>) -> f64 {
+pub fn area_segments(segments_list: &Vec<(Rc<Vertex>, Rc<Vertex>)>) -> f64 {
     return segments_list.iter().fold(0.0, |acc, (v1, v2)| {
         acc + (v2.x - v1.x) * (v2.y + v1.y) / 2.0
     });
@@ -41,10 +41,11 @@ mod area {
         let v1 = Rc::new(Vertex::new(0.0, 0.0));
         let v2 = Rc::new(Vertex::new(1.0, 0.0));
         let v3 = Rc::new(Vertex::new(0.0, 1.0));
-        assert_eq!(area_segments(vec![
+        let segments: Vec<(Rc<Vertex>, Rc<Vertex>)> = vec! [
             (Rc::clone(&v1), Rc::clone(&v2)),
             (Rc::clone(&v2), Rc::clone(&v3)),
             (Rc::clone(&v3), Rc::clone(&v1)),
-        ]), -0.5);
+        ];
+        assert_eq!(area_segments(&segments), -0.5);
     }
 }

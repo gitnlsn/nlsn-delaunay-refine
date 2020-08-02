@@ -1,3 +1,7 @@
+// ================= //
+//      IMPORTS      //
+// ================= //
+
 /* Elementary geometric elements */
 mod elements {
     pub mod vertex;
@@ -16,6 +20,7 @@ mod properties {
     pub mod continence;
     pub mod encroachment;
     pub mod intersection;
+    pub mod angle;
 }
 
 /* Data structure that resumes lib main output */
