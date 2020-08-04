@@ -3,7 +3,7 @@ use crate::elements::vertex::*;
 
 use crate::properties::area::area_segments;
 use crate::properties::intersection::*;
-use crate::properties::orientation::Orientation;
+use crate::properties::orientation::*;
 
 use std::cmp::Ordering;
 use std::collections::hash_set::HashSet;
@@ -22,7 +22,7 @@ impl Polyline {
 
         let segments = vertex_pairs(&vertex_list, false);
 
-        if orientation(segments) == Orientation::Clockwise {
+        if segments_orientation(&segments) == Orientation::Clockwise {
             return Some(Self {
                 vertices: vertex_list.iter().cloned().rev().collect(),
                 opened: false,
