@@ -1,6 +1,6 @@
 language: rust
 cache: cargo
-dist: trusty
+dist: bionic
 os: 
   - linux
   - osx
@@ -9,7 +9,6 @@ rust:
   - nightly
   - beta
   - stable
-  - 1.0.0
 # The main build
 script:
   - cargo build
