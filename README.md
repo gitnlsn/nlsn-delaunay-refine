@@ -2,16 +2,9 @@
 <h1 align="center">Rust Delaunay Triangulation</h1>
 <p align="center" >
 
-<img src="https://img.shields.io/badge/language-rust-blue.svg" />
+<img src="https://img.shields.io/badge/language-Rust-blue.svg" />
 
-<img src="https://img.shields.io/github/license/mashape/apistatus.svg" />
-
-</p>
-<p align="center" >
-
-<a href="https://codecov.io/gh/nelsonatgithub/nlsn-delaunay-refine">
-  <img src="https://codecov.io/gh/nelsonatgithub/nlsn-delaunay-refine/branch/dev/graph/badge.svg" />
-</a>
+<img src="https://img.shields.io/github/license/nelsonatgithub/nlsn-delaunay-refine" />
 
 <img src="https://img.shields.io/github/issues/nelsonatgithub/nlsn-delaunay-refine" />
 
@@ -20,6 +13,16 @@
 <img src="https://img.shields.io/github/forks/nelsonatgithub/nlsn-delaunay-refine" />
 
 </p>
+<p align="center" >
+
+<img src="https://travis-ci.org/nelsonatgithub/nlsn-delaunay-refine.svg?branch=dev" />
+
+<a href="https://codecov.io/gh/nelsonatgithub/nlsn-delaunay-refine">
+  <img src="https://codecov.io/gh/nelsonatgithub/nlsn-delaunay-refine/branch/dev/graph/badge.svg" />
+</a>
+
+</p>
+
 </html>
 
 # Description

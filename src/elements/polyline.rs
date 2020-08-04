@@ -73,12 +73,7 @@ impl Polyline {
                     }
 
                     /* calculates intersection and inserts it into the returning set */
-                    if let Some(intersection_vertex) = intersection(
-                        Rc::clone(&v1),
-                        Rc::clone(&v2),
-                        Rc::clone(&v3),
-                        Rc::clone(&v4),
-                    ) {
+                    if let Some(intersection_vertex) = intersection(&v1, &v2, &v3, &v4) {
                         let intersection_vertex = Rc::new(intersection_vertex);
 
                         if intersection_vertex == v1 {
@@ -134,7 +129,7 @@ pub fn vertex_pairs(
     return pair_list;
 }
 
-pub fn orientation(vertex_pairs: Vec<(Rc<Vertex>, Rc<Vertex>)>) -> Orientation {
+pub fn segments_orientation(vertex_pairs: &Vec<(Rc<Vertex>, Rc<Vertex>)>) -> Orientation {
     let area = area_segments(vertex_pairs);
     if area < 0.0 {
         return Orientation::Counterclockwise;
