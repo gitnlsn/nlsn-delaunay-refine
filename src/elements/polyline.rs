@@ -1,9 +1,14 @@
 use crate::elements::bounding_box::*;
 use crate::elements::vertex::*;
 
+use crate::properties::angle::*;
 use crate::properties::area::area_segments;
+use crate::properties::continence::Continence;
+use crate::properties::distance::*;
+use crate::properties::dot::*;
 use crate::properties::intersection::*;
 use crate::properties::orientation::*;
+use crate::properties::parallel::*;
 
 use std::cmp::Ordering;
 use std::collections::hash_set::HashSet;
@@ -46,8 +51,284 @@ impl Polyline {
         });
     }
 
+    /**
+     * Returns first vertex if polyline is opened. Returns None otherwise.
+     */
+    pub fn head(&self) -> Option<Rc<Vertex>> {
+        if !self.opened {
+            return None;
+        }
+
+        let first_vertex = self.vertices.get(0).unwrap();
+        return Some(Rc::clone(first_vertex));
+    }
+
+    /**
+     * Returns last vertex if polyline is opened. Returns None otherwise.
+     */
+    pub fn tail(&self) -> Option<Rc<Vertex>> {
+        if !self.opened {
+            return None;
+        }
+
+        let length = self.vertices.len();
+        let last_vertex = self.vertices.get(length - 1).unwrap();
+        return Some(Rc::clone(last_vertex));
+    }
+
     pub fn bounding_box(&self) -> Option<BoundingBox> {
         BoundingBox::from_vertices(self.vertices.iter().cloned().collect())
+    }
+
+    pub fn contains(&self, vertex: &Vertex) -> Option<Continence> {
+        if self.opened {
+            return None;
+        }
+
+        let segments: Vec<(Rc<Vertex>, Rc<Vertex>)> = vertex_pairs(&self.vertices, self.opened)
+            .iter()
+            .cloned()
+            .filter(|(v1, v2)| {
+                if v1.x < v2.x {
+                    return vertex.x >= v1.x && vertex.x <= v2.x;
+                } else {
+                    return vertex.x <= v1.x && vertex.x >= v2.x;
+                }
+            })
+            .collect();
+
+        let mut parity: f64 = 0.0;
+
+        for (v1, v2) in segments {
+            match orientation(&v1, &v2, vertex) {
+                Orientation::Colinear => return Some(Continence::Boundary),
+                Orientation::Counterclockwise => {
+                    if v1.x == vertex.x || v2.x == vertex.x {
+                        parity = parity + 0.5;
+                    } else {
+                        parity = parity + 1.0;
+                    }
+                }
+                Orientation::Clockwise => {
+                    if v1.x == vertex.x || v2.x == vertex.x {
+                        parity = parity - 0.5;
+                    } else {
+                        parity = parity - 1.0;
+                    }
+                }
+            }
+        }
+
+        if parity == 0.0 {
+            return Some(Continence::Outside);
+        } else {
+            return Some(Continence::Inside);
+        }
+    }
+
+    /**
+     * Determines the intersection between two closed polylines clockwise oriented.
+     * Returns a Vec of polylines that results from the intersection operation and
+     * a Vec of Vertexes that are excluded from the intersection.
+     */
+    pub fn intersection(
+        p1: &Self,
+        p2: &Self,
+    ) -> Option<(Vec<Self>, Vec<(Rc<Vertex>, Rc<Vertex>)>)> {
+        if p1.opened || p2.opened {
+            return None;
+        }
+
+        let p1_bbox = p1.bounding_box().unwrap();
+        let p2_bbox = p2.bounding_box().unwrap();
+
+        if let Some(intersection_region) = BoundingBox::intersection(&p1_bbox, &p2_bbox) {
+            /* Selecting segments inside both polylines */
+            let mut possible_segments: Vec<(Rc<Vertex>, Rc<Vertex>)> = Vec::new();
+
+            for (v1, v2) in vertex_pairs(&p1.vertices, p1.opened) {
+                /* check bouding box continence as it is a lighter operation */
+                if intersection_region.contains(&v1) || intersection_region.contains(&v2) {
+                    /* evaluate polyline continete */
+                    if p2.contains(&v1).unwrap() != Continence::Outside
+                        || p2.contains(&v2).unwrap() != Continence::Outside
+                    {
+                        /* skips if not inside intersection bounding box */
+                        possible_segments.push((Rc::clone(&v1), Rc::clone(&v2)));
+                    }
+                }
+            } /* end - p1 loop */
+
+            /* repeats for p2 agains p1 */
+            for (v3, v4) in vertex_pairs(&p2.vertices, p2.opened) {
+                if intersection_region.contains(&v3) || intersection_region.contains(&v4) {
+                    if p1.contains(&v3).unwrap() != Continence::Outside
+                        || p1.contains(&v4).unwrap() != Continence::Outside
+                    {
+                        possible_segments.push((Rc::clone(&v3), Rc::clone(&v4)));
+                    }
+                }
+            } /* end - p2 loop */
+
+            let mut polyline_segmentation_list: Vec<Self> = Vec::new();
+            loop {
+                /*
+                    Removes pairs of colinear segments in opposed direction
+                */
+                let mut read_segments: Vec<(Rc<Vertex>, Rc<Vertex>)> = Vec::new();
+                read_segments.push(possible_segments.pop().unwrap());
+                while !possible_segments.is_empty() {
+                    let (v1, v2) = possible_segments.pop().unwrap();
+                    match read_segments.iter().position(|(v3, v4)| {
+                        match intersection(&v1, &v2, v3, v4) {
+                            Some(intersection_vertex) => {
+                                let is_parallel = parallel(&v1, &v2, v3, v4);
+                                let have_opposite_directions = dot(&v1, &v2, v3, v4) < 0.0;
+
+                                let is_polyline_continuation = &v1 == v4 || &v2 == v3;
+                                let is_outside = p1.contains(&v1).unwrap() == Continence::Outside
+                                    || p2.contains(&v1).unwrap() == Continence::Outside
+                                    || p1.contains(&v2).unwrap() == Continence::Outside
+                                    || p2.contains(&v2).unwrap() == Continence::Outside
+                                    || p1.contains(&v3).unwrap() == Continence::Outside
+                                    || p2.contains(&v3).unwrap() == Continence::Outside
+                                    || p1.contains(&v4).unwrap() == Continence::Outside
+                                    || p2.contains(&v4).unwrap() == Continence::Outside;
+
+                                return is_parallel
+                                    && have_opposite_directions
+                                    && (is_polyline_continuation || is_outside);
+                            }
+                            None => return false,
+                        }
+                    }) {
+                        Some(index) => {
+                            let (v3, v4) = read_segments.remove(index);
+                            let intersection_vertex = intersection(&v1, &v2, &v3, &v4).unwrap();
+                            let intersection_vertex = Rc::new(intersection_vertex);
+
+                            if v1 == v4
+                                || p1.contains(&v1).unwrap() == Continence::Outside
+                                || p2.contains(&v1).unwrap() == Continence::Outside
+                                || p1.contains(&v4).unwrap() == Continence::Outside
+                                || p2.contains(&v4).unwrap() == Continence::Outside
+                            {
+                                possible_segments
+                                    .push((Rc::clone(&v3), Rc::clone(&intersection_vertex)));
+                                possible_segments
+                                    .push((Rc::clone(&intersection_vertex), Rc::clone(&v2)));
+                            }
+                            if v2 == v3
+                                || p1.contains(&v2).unwrap() == Continence::Outside
+                                || p2.contains(&v2).unwrap() == Continence::Outside
+                                || p1.contains(&v3).unwrap() == Continence::Outside
+                                || p2.contains(&v3).unwrap() == Continence::Outside
+                            {
+                                possible_segments
+                                    .push((Rc::clone(&v1), Rc::clone(&intersection_vertex)));
+                                possible_segments
+                                    .push((Rc::clone(&intersection_vertex), Rc::clone(&v4)));
+                            }
+                        }
+                        None => {
+                            read_segments.push((v1, v2));
+                        }
+                    }
+                } /* end - search initial intersection */
+
+                let mut possible_polyline_intersection: Vec<(Rc<Vertex>, Rc<Vertex>)> = Vec::new();
+                possible_polyline_intersection.push(read_segments.remove(0));
+
+                let mut possible_segments: HashSet<(Rc<Vertex>, Rc<Vertex>)> =
+                    read_segments.iter().cloned().collect();
+
+                loop {
+                    let (v1, v2) = possible_polyline_intersection.last().unwrap();
+                    let v1 = Rc::clone(&v1);
+                    let v2 = Rc::clone(&v2);
+
+                    let mut possible_next_segments: Vec<(Rc<Vertex>, Rc<Vertex>)> =
+                        possible_segments
+                            .iter()
+                            .filter(|(v3, v4)| {
+                                if let Some(intersection_vertex) = intersection(&v1, &v2, v3, v4) {
+                                    let are_parallel = parallel(&v1, &v2, v3, v4);
+
+                                    return !are_parallel;
+                                }
+                                return false;
+                            })
+                            .cloned()
+                            .collect();
+
+                    possible_next_segments.sort_by(
+                        |(first_v3, first_v4), (second_v3, second_v4)| {
+                            let first_intersection =
+                                intersection(&v1, &v2, first_v3, first_v4).unwrap();
+                            let second_intersection =
+                                intersection(&v1, &v2, second_v3, second_v4).unwrap();
+
+                            if first_intersection == second_intersection {
+                                /*
+                                   when it occurs, polylines have an intersection at a vertex
+                                       intersection === v2 === v3
+                                   we choose the one that takes the polyline to its innermost
+                                */
+                                let first_angle = angle(&v1, &first_intersection, first_v4);
+                                let second_angle = angle(&v1, &second_intersection, first_v4);
+
+                                return first_angle.partial_cmp(&second_angle).unwrap();
+                            }
+
+                            let first_length = distance(&v1, &first_intersection);
+                            let second_length = distance(&v1, &second_intersection);
+
+                            return first_length.partial_cmp(&second_length).unwrap();
+                        },
+                    );
+
+                    let (v3, v4) = possible_segments
+                        .take(possible_next_segments.first().unwrap())
+                        .unwrap();
+                    let v3: Rc<Vertex> = Rc::clone(&v3);
+                    let v4: Rc<Vertex> = Rc::clone(&v4);
+
+                    let is_polyline_continuation = v2 == v3;
+                    if is_polyline_continuation {
+                        possible_polyline_intersection.push((Rc::clone(&v3), Rc::clone(&v4)));
+                    } else {
+                        let intersection_vertex = intersection(&v1, &v2, &v3, &v4).unwrap();
+                    }
+
+                    let (head_vertex, _) = possible_polyline_intersection.get(0).unwrap();
+                    let head_vertex: Rc<Vertex> = Rc::clone(&head_vertex);
+
+                    let is_polyline_enclosing = head_vertex == v4 || head_vertex == v3;
+                    if is_polyline_enclosing {
+                        break;
+                    }
+                }
+            }
+        } /* end - if p1 p2 insersection boundingBox */
+        return None;
+    }
+
+    /**
+     * Determines the union between two closed polylines clockwise oriented.
+     * Returns the polyline resulting from the union operation and a Vec of
+     * Vertexes that are located inside the polyline.
+     */
+    pub fn union(p1: &Self, p2: &Self) -> Option<(Self, Vec<Rc<Vertex>>)> {
+        return None;
+    }
+
+    /**
+     * Determines the subtraction between two closed polylines clockwise oriented.
+     * Returns a Vec of polylines that results from the subtraction operation and
+     * a Vec of Vertexes that does not belong to the polyline Vec.
+     */
+    pub fn subtraction(p1: &Self, p2: &Self) -> Option<(Self, Vec<Rc<Vertex>>)> {
+        return None;
     }
 
     /**
@@ -106,10 +387,7 @@ impl Polyline {
     } /* end - intersection */
 } /* end - impl */
 
-pub fn vertex_pairs(
-    vertex_list: &Vec<Rc<Vertex>>,
-    opened: bool,
-) -> Vec<(Rc<Vertex>, Rc<Vertex>)> {
+pub fn vertex_pairs(vertex_list: &Vec<Rc<Vertex>>, opened: bool) -> Vec<(Rc<Vertex>, Rc<Vertex>)> {
     let mut pair_list: Vec<(Rc<Vertex>, Rc<Vertex>)> = Vec::new();
 
     for index in 0..(vertex_list.len() - 1) {
