@@ -21,6 +21,8 @@ mod properties {
     pub mod encroachment;
     pub mod intersection;
     pub mod angle;
+    pub mod parallel;
+    pub mod dot;
 }
 
 /* Data structure that resumes lib main output */

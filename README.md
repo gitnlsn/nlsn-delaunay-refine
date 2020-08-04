@@ -4,9 +4,16 @@
 
 <img src="https://img.shields.io/badge/language-rust-blue.svg" />
 
-<img src="https://img.shields.io/github/issues/nelsonatgithub/nlsn-delaunay-refine" />
-
 <img src="https://img.shields.io/github/license/mashape/apistatus.svg" />
+
+</p>
+<p align="center" >
+
+<a href="https://codecov.io/gh/nelsonatgithub/nlsn-delaunay-refine">
+  <img src="https://codecov.io/gh/nelsonatgithub/nlsn-delaunay-refine/branch/dev/graph/badge.svg" />
+</a>
+
+<img src="https://img.shields.io/github/issues/nelsonatgithub/nlsn-delaunay-refine" />
 
 <img src="https://img.shields.io/github/stars/nelsonatgithub/nlsn-delaunay-refine" />
 
@@ -32,8 +39,9 @@ The choice for `Rust` is due to its portability in sereral rust contexts and its
 # Task List
 
     - [x] 2D Delaunay Triangulation
-    - [ ] publishing release to crates.io
+    - [x] publishing release to crates.io
     - [ ] 2D Delaunay Refinement
+    - [ ] review User Programming Interface
 
     - [ ] 3D Delaunay Triangulation
     - [ ] 3D Delaunay Refinement

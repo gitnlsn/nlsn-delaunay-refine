@@ -6,7 +6,7 @@ use crate::properties::orientation::*;
 use nalgebra::Vector2;
 
 /**
- * Calculates the ABC
+ * Calculates the angle ABC
  */
 pub fn angle(a: &Vertex, b: &Vertex, c: &Vertex) -> Option<f64> {
     let ba: Vector2<f64> = Vector2::new(a.x - b.x, a.y - b.y);
