@@ -131,12 +131,18 @@ impl Polyline {
      * Returns a Vec of polylines that results from the intersection operation and
      * a Vec of Vertexes that are excluded from the intersection.
      */
-    pub fn intersection(
-        p1: &Self,
-        p2: &Self,
-    ) -> Option<(Vec<Self>, Vec<(Rc<Vertex>, Rc<Vertex>)>)> {
+    pub fn intersection(p1: &Self, p2: &Self) -> (Vec<Self>, HashSet<(Rc<Vertex>, Rc<Vertex>)>) {
+        let mut polyline_intersection_list: Vec<Self> = Vec::new();
+        let mut unused_segments: HashSet<(Rc<Vertex>, Rc<Vertex>)> = HashSet::new();
+
         if p1.opened || p2.opened {
-            return None;
+            let unused_segments: HashSet<(Rc<Vertex>, Rc<Vertex>)> =
+                vertex_pairs(&p1.vertices, p1.opened)
+                    .iter()
+                    .chain(vertex_pairs(&p2.vertices, p2.opened).iter())
+                    .cloned()
+                    .collect();
+            return (polyline_intersection_list, unused_segments);
         }
 
         let p1_bbox = p1.bounding_box().unwrap();
@@ -150,98 +156,107 @@ impl Polyline {
                 /* check bouding box continence as it is a lighter operation */
                 if intersection_region.contains(&v1) || intersection_region.contains(&v2) {
                     /* evaluate polyline continete */
-                    if p2.contains(&v1).unwrap() != Continence::Outside
+                    let v1v2 = Polyline::new_opened(vec![Rc::clone(&v1), Rc::clone(&v2)]).unwrap();
+                    if !Polyline::intersection_vertices(&p2, &v1v2).is_empty()
+                        || p2.contains(&v1).unwrap() != Continence::Outside
                         || p2.contains(&v2).unwrap() != Continence::Outside
                     {
                         /* skips if not inside intersection bounding box */
                         possible_segments.push((Rc::clone(&v1), Rc::clone(&v2)));
+                        continue;
                     }
                 }
+                unused_segments.insert((v1, v2));
             } /* end - p1 loop */
 
             /* repeats for p2 agains p1 */
             for (v3, v4) in vertex_pairs(&p2.vertices, p2.opened) {
                 if intersection_region.contains(&v3) || intersection_region.contains(&v4) {
-                    if p1.contains(&v3).unwrap() != Continence::Outside
+                    let v3v4 = Polyline::new_opened(vec![Rc::clone(&v3), Rc::clone(&v4)]).unwrap();
+                    if !Polyline::intersection_vertices(&p1, &v3v4).is_empty()
+                        || p1.contains(&v3).unwrap() != Continence::Outside
                         || p1.contains(&v4).unwrap() != Continence::Outside
                     {
                         possible_segments.push((Rc::clone(&v3), Rc::clone(&v4)));
+                        continue;
                     }
                 }
+                unused_segments.insert((v3, v4));
             } /* end - p2 loop */
 
-            let mut polyline_segmentation_list: Vec<Self> = Vec::new();
-            loop {
-                /*
-                    Removes pairs of colinear segments in opposed direction
-                */
-                let mut read_segments: Vec<(Rc<Vertex>, Rc<Vertex>)> = Vec::new();
-                read_segments.push(possible_segments.pop().unwrap());
-                while !possible_segments.is_empty() {
-                    let (v1, v2) = possible_segments.pop().unwrap();
-                    match read_segments.iter().position(|(v3, v4)| {
-                        match intersection(&v1, &v2, v3, v4) {
-                            Some(intersection_vertex) => {
-                                let is_parallel = parallel(&v1, &v2, v3, v4);
-                                let have_opposite_directions = dot(&v1, &v2, v3, v4) < 0.0;
+            /*
+                Removes pairs of colinear segments in opposed direction
+            */
+            let mut read_segments: Vec<(Rc<Vertex>, Rc<Vertex>)> = Vec::new();
+            read_segments.push(possible_segments.pop().unwrap());
+            while !possible_segments.is_empty() {
+                let (v1, v2) = possible_segments.pop().unwrap();
+                match read_segments.iter().position(|(v3, v4)| {
+                    match intersection(&v1, &v2, v3, v4) {
+                        Some(intersection_vertex) => {
+                            let is_parallel = parallel(&v1, &v2, v3, v4);
+                            let have_opposite_directions = dot(&v1, &v2, v3, v4) < 0.0;
 
-                                let is_polyline_continuation = &v1 == v4 || &v2 == v3;
-                                let is_outside = p1.contains(&v1).unwrap() == Continence::Outside
-                                    || p2.contains(&v1).unwrap() == Continence::Outside
-                                    || p1.contains(&v2).unwrap() == Continence::Outside
-                                    || p2.contains(&v2).unwrap() == Continence::Outside
-                                    || p1.contains(&v3).unwrap() == Continence::Outside
-                                    || p2.contains(&v3).unwrap() == Continence::Outside
-                                    || p1.contains(&v4).unwrap() == Continence::Outside
-                                    || p2.contains(&v4).unwrap() == Continence::Outside;
-
-                                return is_parallel
-                                    && have_opposite_directions
-                                    && (is_polyline_continuation || is_outside);
-                            }
-                            None => return false,
-                        }
-                    }) {
-                        Some(index) => {
-                            let (v3, v4) = read_segments.remove(index);
-                            let intersection_vertex = intersection(&v1, &v2, &v3, &v4).unwrap();
-                            let intersection_vertex = Rc::new(intersection_vertex);
-
-                            if v1 == v4
-                                || p1.contains(&v1).unwrap() == Continence::Outside
+                            let is_polyline_continuation = &v1 == v4 || &v2 == v3;
+                            let is_outside = p1.contains(&v1).unwrap() == Continence::Outside
                                 || p2.contains(&v1).unwrap() == Continence::Outside
-                                || p1.contains(&v4).unwrap() == Continence::Outside
-                                || p2.contains(&v4).unwrap() == Continence::Outside
-                            {
-                                possible_segments
-                                    .push((Rc::clone(&v3), Rc::clone(&intersection_vertex)));
-                                possible_segments
-                                    .push((Rc::clone(&intersection_vertex), Rc::clone(&v2)));
-                            }
-                            if v2 == v3
                                 || p1.contains(&v2).unwrap() == Continence::Outside
                                 || p2.contains(&v2).unwrap() == Continence::Outside
                                 || p1.contains(&v3).unwrap() == Continence::Outside
                                 || p2.contains(&v3).unwrap() == Continence::Outside
-                            {
-                                possible_segments
-                                    .push((Rc::clone(&v1), Rc::clone(&intersection_vertex)));
-                                possible_segments
-                                    .push((Rc::clone(&intersection_vertex), Rc::clone(&v4)));
-                            }
+                                || p1.contains(&v4).unwrap() == Continence::Outside
+                                || p2.contains(&v4).unwrap() == Continence::Outside;
+
+                            return is_parallel
+                                && have_opposite_directions
+                                && (is_polyline_continuation || is_outside);
                         }
-                        None => {
-                            read_segments.push((v1, v2));
+                        None => return false,
+                    }
+                }) {
+                    Some(index) => {
+                        let (v3, v4) = read_segments.remove(index);
+                        let intersection_vertex = intersection(&v1, &v2, &v3, &v4).unwrap();
+                        let intersection_vertex = Rc::new(intersection_vertex);
+
+                        unused_segments.insert((Rc::clone(&v1), Rc::clone(&v2)));
+                        unused_segments.insert((Rc::clone(&v3), Rc::clone(&v4)));
+                        if v2 != v3
+                            && (v1 == v4
+                                || p1.contains(&v1).unwrap() == Continence::Outside
+                                || p2.contains(&v1).unwrap() == Continence::Outside
+                                || p1.contains(&v4).unwrap() == Continence::Outside
+                                || p2.contains(&v4).unwrap() == Continence::Outside)
+                        {
+                            possible_segments.push((Rc::clone(&v3), Rc::clone(&v2)));
+                        }
+                        if v1 != v4
+                            && (v2 == v3
+                                || p1.contains(&v2).unwrap() == Continence::Outside
+                                || p2.contains(&v2).unwrap() == Continence::Outside
+                                || p1.contains(&v3).unwrap() == Continence::Outside
+                                || p2.contains(&v3).unwrap() == Continence::Outside)
+                        {
+                            possible_segments.push((Rc::clone(&v1), Rc::clone(&v4)));
                         }
                     }
-                } /* end - search initial intersection */
+                    None => {
+                        read_segments.push((v1, v2));
+                    }
+                }
+            } /* end - removes pair of intersecting colinear segments in opposed direction */
 
+            let mut possible_segments: HashSet<(Rc<Vertex>, Rc<Vertex>)> =
+                read_segments.into_iter().collect();
+
+            while !possible_segments.is_empty() {
                 let mut possible_polyline_intersection: Vec<(Rc<Vertex>, Rc<Vertex>)> = Vec::new();
-                possible_polyline_intersection.push(read_segments.remove(0));
+                let (h1, h2) = possible_segments.iter().next().unwrap();
+                let h1 = Rc::clone(h1);
+                let h2 = Rc::clone(h2);
+                possible_polyline_intersection.push(possible_segments.take(&(h1, h2)).unwrap());
 
-                let mut possible_segments: HashSet<(Rc<Vertex>, Rc<Vertex>)> =
-                    read_segments.iter().cloned().collect();
-
+                /* Builds polylines */
                 loop {
                     let (v1, v2) = possible_polyline_intersection.last().unwrap();
                     let v1 = Rc::clone(&v1);
@@ -251,15 +266,71 @@ impl Polyline {
                         possible_segments
                             .iter()
                             .filter(|(v3, v4)| {
+                                if v4 == &v1 {
+                                    return false;
+                                }
                                 if let Some(intersection_vertex) = intersection(&v1, &v2, v3, v4) {
-                                    let are_parallel = parallel(&v1, &v2, v3, v4);
-
-                                    return !are_parallel;
+                                    return orientation(&v1, &intersection_vertex, v4)
+                                        != Orientation::Clockwise;
                                 }
                                 return false;
                             })
                             .cloned()
                             .collect();
+
+                    if possible_next_segments.is_empty() {
+                        /* Check polyline closure */
+                        if possible_polyline_intersection.len() > 2 {
+                            let (last_v1, last_v2) = possible_polyline_intersection.last().unwrap();
+                            let last_v1: Rc<Vertex> = Rc::clone(&last_v1);
+                            let last_v2: Rc<Vertex> = Rc::clone(&last_v2);
+
+                            let (head_v3, head_v4) = possible_polyline_intersection.get(0).unwrap();
+                            let head_v3: Rc<Vertex> = Rc::clone(&head_v3);
+                            let head_v4: Rc<Vertex> = Rc::clone(&head_v4);
+
+                            if let Some(intersection_vertex) =
+                                intersection(&last_v1, &last_v2, &head_v3, &head_v4)
+                            {
+                                if last_v2 != head_v3 {
+                                    /* intersection occurs at the middle */
+                                    let intersection_vertex = Rc::new(intersection_vertex);
+                                    possible_polyline_intersection.remove(0);
+                                    possible_polyline_intersection
+                                        .remove(possible_polyline_intersection.len() - 1);
+                                    possible_polyline_intersection.push((
+                                        Rc::clone(&last_v1),
+                                        Rc::clone(&intersection_vertex),
+                                    ));
+                                    possible_polyline_intersection.push((
+                                        Rc::clone(&intersection_vertex),
+                                        Rc::clone(&head_v4),
+                                    ));
+                                    unused_segments.insert((
+                                        Rc::clone(&intersection_vertex),
+                                        Rc::clone(&last_v2),
+                                    ));
+                                    unused_segments.insert((
+                                        Rc::clone(&head_v3),
+                                        Rc::clone(&intersection_vertex),
+                                    ));
+                                }
+                                let vertices: Vec<Rc<Vertex>> = possible_polyline_intersection
+                                    .iter()
+                                    .map(|(last_v1, _)| Rc::clone(last_v1))
+                                    .collect();
+
+                                polyline_intersection_list
+                                    .push(Self::new_closed(vertices).unwrap());
+                                break;
+                            }
+                        } /* end - if polyline closure */
+                        /* move possible_polyline to unused_vertices */
+                        for (v1, v2) in possible_polyline_intersection.iter() {
+                            unused_segments.insert((Rc::clone(&v1), Rc::clone(&v2)));
+                        }
+                        break;
+                    }
 
                     possible_next_segments.sort_by(
                         |(first_v3, first_v4), (second_v3, second_v4)| {
@@ -287,6 +358,7 @@ impl Polyline {
                         },
                     );
 
+                    /* Evaluates intersection / continuation and include new segment */
                     let (v3, v4) = possible_segments
                         .take(possible_next_segments.first().unwrap())
                         .unwrap();
@@ -298,19 +370,22 @@ impl Polyline {
                         possible_polyline_intersection.push((Rc::clone(&v3), Rc::clone(&v4)));
                     } else {
                         let intersection_vertex = intersection(&v1, &v2, &v3, &v4).unwrap();
+                        let intersection_vertex = Rc::new(intersection_vertex);
+                        possible_polyline_intersection
+                            .remove(possible_polyline_intersection.len() - 1);
+                        possible_polyline_intersection
+                            .push((Rc::clone(&v1), Rc::clone(&intersection_vertex)));
+                        possible_polyline_intersection
+                            .push((Rc::clone(&intersection_vertex), Rc::clone(&v4)));
+                        unused_segments
+                            .insert((Rc::clone(&intersection_vertex), Rc::clone(&v2)));
+                        unused_segments
+                            .insert((Rc::clone(&v3), Rc::clone(&intersection_vertex)));
                     }
-
-                    let (head_vertex, _) = possible_polyline_intersection.get(0).unwrap();
-                    let head_vertex: Rc<Vertex> = Rc::clone(&head_vertex);
-
-                    let is_polyline_enclosing = head_vertex == v4 || head_vertex == v3;
-                    if is_polyline_enclosing {
-                        break;
-                    }
-                }
-            }
+                } /* end - loop for segments continuation */
+            } /* end - loop */
         } /* end - if p1 p2 insersection boundingBox */
-        return None;
+        return (polyline_intersection_list, unused_segments);
     }
 
     /**
@@ -342,17 +417,7 @@ impl Polyline {
 
         if let Some(intersection_region) = BoundingBox::intersection(&p1_bbox, &p2_bbox) {
             for (v1, v2) in vertex_pairs(&p1.vertices, p1.opened) {
-                if !intersection_region.contains(&v1) && !intersection_region.contains(&v2) {
-                    /* skips if not inside intersection bounding box */
-                    continue;
-                }
-
                 for (v3, v4) in vertex_pairs(&p2.vertices, p2.opened) {
-                    if !intersection_region.contains(&v3) && !intersection_region.contains(&v4) {
-                        /* skips if not inside intersection bounding box */
-                        continue;
-                    }
-
                     /* calculates intersection and inserts it into the returning set */
                     if let Some(intersection_vertex) = intersection(&v1, &v2, &v3, &v4) {
                         let intersection_vertex = Rc::new(intersection_vertex);
@@ -425,23 +490,67 @@ mod polylines_intersection {
     use super::*;
 
     #[test]
-    fn test_1() {
-        let p1 = Polyline::new_closed(vec![
-            Rc::new(Vertex::new(1.0, 1.0)),
-            Rc::new(Vertex::new(5.0, 1.0)),
-            Rc::new(Vertex::new(3.0, 5.0)),
-        ])
-        .unwrap();
+    fn intersection_vertices() {
+        let v1 = Rc::new(Vertex::new(1.0, 1.0));
+        let v2 = Rc::new(Vertex::new(5.0, 1.0));
+        let v3 = Rc::new(Vertex::new(3.0, 5.0));
 
-        let p2 = Polyline::new_closed(vec![
-            Rc::new(Vertex::new(3.0, 0.0)),
-            Rc::new(Vertex::new(5.0, 4.0)),
-            Rc::new(Vertex::new(1.0, 4.0)),
-        ])
-        .unwrap();
+        let v4 = Rc::new(Vertex::new(3.0, 0.0));
+        let v5 = Rc::new(Vertex::new(5.0, 4.0));
+        let v6 = Rc::new(Vertex::new(1.0, 4.0));
 
-        let intersection_list = Polyline::intersection_vertices(&p1, &p2);
+        let p1 =
+            Polyline::new_closed(vec![Rc::clone(&v1), Rc::clone(&v2), Rc::clone(&v3)]).unwrap();
+        let p2 =
+            Polyline::new_closed(vec![Rc::clone(&v4), Rc::clone(&v5), Rc::clone(&v6)]).unwrap();
 
-        assert_eq!(intersection_list.len(), 6);
+        let intersection_vertices_list = Polyline::intersection_vertices(&p1, &p2);
+        assert_eq!(intersection_vertices_list.len(), 6);
+
+        let intersection_vertices_list = Polyline::intersection_vertices(
+            &p1,
+            &Polyline::new_opened(vec![Rc::clone(&v4), Rc::clone(&v5)]).unwrap(),
+        );
+        assert_eq!(intersection_vertices_list.len(), 2);
+
+        let intersection_vertices_list = Polyline::intersection_vertices(
+            &p1,
+            &Polyline::new_opened(vec![Rc::clone(&v5), Rc::clone(&v6)]).unwrap(),
+        );
+        assert_eq!(intersection_vertices_list.len(), 2);
+
+        let intersection_vertices_list = Polyline::intersection_vertices(
+            &p1,
+            &Polyline::new_opened(vec![Rc::clone(&v6), Rc::clone(&v4)]).unwrap(),
+        );
+        assert_eq!(intersection_vertices_list.len(), 2);
+    }
+
+    #[test]
+    fn intersection_triangles_to_hexagon() {
+        let v1 = Rc::new(Vertex::new(1.0, 1.0));
+        let v2 = Rc::new(Vertex::new(5.0, 1.0));
+        let v3 = Rc::new(Vertex::new(3.0, 5.0));
+
+        let v4 = Rc::new(Vertex::new(3.0, 0.0));
+        let v5 = Rc::new(Vertex::new(5.0, 4.0));
+        let v6 = Rc::new(Vertex::new(1.0, 4.0));
+
+        let p1 =
+            Polyline::new_closed(vec![Rc::clone(&v1), Rc::clone(&v2), Rc::clone(&v3)]).unwrap();
+        let p2 =
+            Polyline::new_closed(vec![Rc::clone(&v4), Rc::clone(&v5), Rc::clone(&v6)]).unwrap();
+
+        let (intersection_list,_) = Polyline::intersection(&p1, &p2);
+        assert_eq!(intersection_list.len(), 1);
+
+        let polyline: &Polyline = intersection_list.get(0).unwrap();
+        assert_eq!(polyline.vertices.len(), 6);
+        assert!(polyline.vertices.contains(&Rc::new(Vertex::new(3.5, 1.0))));
+        assert!(polyline.vertices.contains(&Rc::new(Vertex::new(4.25, 2.5))));
+        assert!(polyline.vertices.contains(&Rc::new(Vertex::new(3.5, 4.0))));
+        assert!(polyline.vertices.contains(&Rc::new(Vertex::new(2.5, 4.0))));
+        assert!(polyline.vertices.contains(&Rc::new(Vertex::new(1.75, 2.5))));
+        assert!(polyline.vertices.contains(&Rc::new(Vertex::new(2.5, 1.0))));
     }
 }

@@ -25,10 +25,6 @@ impl BoundingBox {
             upper_y = max(upper_y, vertex.y);
         }
 
-        if lower_x == upper_x && lower_y == upper_y {
-            return None;
-        }
-
         return Some(Self {
             origin: Rc::new(Vertex::new(lower_x, lower_y)),
             destin: Rc::new(Vertex::new(upper_x, upper_y)),
@@ -123,14 +119,6 @@ mod intersection {
         let v4 = Rc::new(Vertex::new(5.0, 6.0));
 
         assert!(BoundingBox::from_vertices(vec![]).is_none());
-        assert!(BoundingBox::from_vertices(vec![Rc::clone(&v1),]).is_none());
-        assert!(BoundingBox::from_vertices(vec![
-            Rc::clone(&v1),
-            Rc::clone(&v1),
-            Rc::clone(&v1),
-            Rc::clone(&v1)
-        ])
-        .is_none());
 
         let bbox = BoundingBox::from_vertices(vec![v1, v2, v3, v4]).unwrap();
 
