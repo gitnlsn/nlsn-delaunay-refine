@@ -23,6 +23,7 @@ mod properties {
     pub mod angle;
     pub mod parallel;
     pub mod dot;
+    pub mod midpoint;
 }
 
 /* Data structure that resumes lib main output */
