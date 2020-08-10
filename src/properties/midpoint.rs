@@ -1,5 +1,4 @@
 use crate::elements::vertex::*;
-use std::rc::Rc;
 
 pub fn midpoint(v1: &Vertex, v2: &Vertex) -> Vertex {
     if v1.is_ghost || v2.is_ghost {
