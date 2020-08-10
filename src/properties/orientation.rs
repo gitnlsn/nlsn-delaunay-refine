@@ -1,11 +1,7 @@
 extern crate nalgebra;
 
 use crate::elements::vertex::*;
-use crate::properties::area::area_segments;
-
-use std::cmp::Ordering;
 use nalgebra::Matrix3;
-use std::rc::Rc;
 
 #[derive(PartialEq, Debug)]
 pub enum Orientation {
