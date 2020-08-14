@@ -1,3 +1,5 @@
+#![macro_use]
+extern crate float_cmp;
 extern crate nalgebra;
 
 use crate::elements::vertex::*;
@@ -16,14 +18,16 @@ pub enum Orientation {
  */
 pub fn orientation(a: &Vertex, b: &Vertex, c: &Vertex) -> Orientation {
     let matrix = Matrix3::new(a.x, a.y, 1.0, b.x, b.y, 1.0, c.x, c.y, 1.0);
-    let det = matrix.determinant();
+    let det: f64 = matrix.determinant();
+
+    if float_cmp::approx_eq!(f64, det, 0.0, epsilon = 1.0E-14f64) {
+        return Orientation::Colinear;
+    }
 
     if det > 0.0 {
         return Orientation::Counterclockwise;
-    } else if det < 0.0 {
-        return Orientation::Clockwise;
     } else {
-        return Orientation::Colinear;
+        return Orientation::Clockwise;
     }
 }
 
@@ -36,10 +40,7 @@ mod orientation {
         let p1 = Vertex::new(0.0, 0.0);
         let p2 = Vertex::new(1.0, 0.0);
         let p3 = Vertex::new(0.0, 1.0);
-        assert_eq!(
-            orientation(&p1, &p2, &p3),
-            Orientation::Counterclockwise
-        );
+        assert_eq!(orientation(&p1, &p2, &p3), Orientation::Counterclockwise);
     }
 
     #[test]
@@ -55,6 +56,14 @@ mod orientation {
         let p1 = Vertex::new(0.0, 0.0);
         let p2 = Vertex::new(1.0, 1.0);
         let p3 = Vertex::new(2.0, 2.0);
+        assert_eq!(orientation(&p1, &p2, &p3), Orientation::Colinear);
+    }
+
+    #[test]
+    fn exception_case_1() {
+        let p1 = Vertex::new(5.0, 1.0);
+        let p2 = Vertex::new(3.0, 4.0);
+        let p3 = Vertex::new(4.133333333333334, 2.3000000000000003);
         assert_eq!(orientation(&p1, &p2, &p3), Orientation::Colinear);
     }
 }

@@ -22,3 +22,4 @@ is-it-maintained-open-issues = { repository = "https://github.com/nelsonatgithub
 [dependencies]
 nalgebra = "0.20"
 num = "0.2.1"
+float-cmp = "0.8.0"

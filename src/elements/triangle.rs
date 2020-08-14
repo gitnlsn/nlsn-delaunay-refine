@@ -1,14 +1,5 @@
-use crate::properties::{
-    area::*,
-    continence::*,
-    distance::*,
-    circumcenter::*,
-    orientation::*,
-};
-use crate::elements::{
-    edge::*,
-    vertex::*,
-};
+use crate::elements::{edge::*, vertex::*};
+use crate::properties::{area::*, circumcenter::*, continence::*, distance::*, orientation::*};
 
 use std::cmp::Eq;
 use std::fmt;
@@ -127,6 +118,20 @@ impl Triangle {
 
         return (e1, e2, e3);
     }
+
+    pub fn center(&self) -> Vertex {
+        if self.is_ghost() {
+            let center_x = (self.v1.x + self.v2.x) / 2.0;
+            let center_y = (self.v1.y + self.v2.y) / 2.0;
+
+            return Vertex::new(center_x, center_y);
+        } else {
+            let center_x = (self.v1.x + self.v2.x + self.v3.x) / 3.0;
+            let center_y = (self.v1.y + self.v2.y + self.v3.y) / 3.0;
+
+            return Vertex::new(center_x, center_y);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -225,5 +230,22 @@ mod quality_ratio {
         let ratio = triangle.quality_ratio();
 
         assert!((ratio - 0.7071067811865476).abs() < 0.00000001);
+    }
+}
+
+#[cfg(test)]
+mod center {
+    use super::*;
+
+    #[test]
+    fn sample_1() {
+        let v1 = Rc::new(Vertex::new(0.0, 0.0));
+        let v2 = Rc::new(Vertex::new(1.0, 0.0));
+        let v3 = Rc::new(Vertex::new(1.0, 1.0));
+
+        let triangle = Triangle::new(&v1, &v2, &v3);
+        let center = triangle.center();
+        assert_eq!(center.x, 2.0 / 3.0);
+        assert_eq!(center.y, 1.0 / 3.0);
     }
 }

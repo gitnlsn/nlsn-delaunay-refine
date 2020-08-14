@@ -1,3 +1,6 @@
+#![macro_use]
+extern crate float_cmp;
+
 extern crate nalgebra;
 
 use crate::elements::bounding_box::*;
@@ -81,12 +84,16 @@ fn intersection_vertex(
 
     if !matrix_a.is_invertible() {
         /* Lines are coincident */
-        let possible_middle_point =
-            Matrix2x1::new((bbox.origin.x + bbox.destin.x) / 2.0, (bbox.origin.y + bbox.destin.y) / 2.0);
+        let possible_middle_point = Matrix2x1::new(
+            (bbox.origin.x + bbox.destin.x) / 2.0,
+            (bbox.origin.y + bbox.destin.y) / 2.0,
+        );
 
         let eval = matrix_a * possible_middle_point - matrix_b;
 
-        if eval[0] < 1e-10 && eval[1] < 1e-10 {
+        if float_cmp::approx_eq!(f64, eval[0], 0.0, epsilon = 1.0E-14f64)
+            && float_cmp::approx_eq!(f64, eval[1], 0.0, epsilon = 1.0E-14f64)
+        {
             /* Return mid-point as intersection representation */
             return Some(Vertex::new(
                 possible_middle_point[0],
@@ -180,5 +187,15 @@ mod intersection {
         let region = intersection_region(&v1, &v2, &v3, &v4);
 
         assert!(region.is_none());
+    }
+
+    #[test]
+    fn exception_case_1() {
+        let v1 = Rc::new(Vertex::new(2.0, 1.0));
+        let v2 = Rc::new(Vertex::new(1.0, 2.0));
+        let v3 = Rc::new(Vertex::new(2.0, 2.0));
+        let v4 = Rc::new(Vertex::new(3.0, 1.0));
+
+        assert_eq!(intersection(&v1, &v2, &v3, &v4), None);
     }
 }

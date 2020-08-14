@@ -7,6 +7,14 @@ pub struct BoundingBox {
     pub destin: Rc<Vertex>,
 }
 
+impl PartialEq for BoundingBox {
+    fn eq(&self, other: &Self) -> bool {
+        return self.origin == other.origin && self.destin == other.destin;
+    }
+}
+
+impl Eq for BoundingBox {}
+
 impl BoundingBox {
     pub fn from_vertices(vertices_list: Vec<Rc<Vertex>>) -> Option<Self> {
         if vertices_list.is_empty() {

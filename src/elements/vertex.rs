@@ -1,3 +1,6 @@
+#![macro_use]
+extern crate float_cmp;
+
 use num::Float;
 use std::cmp::Ordering;
 use std::fmt;
@@ -30,7 +33,9 @@ impl Hash for Vertex {
 
 impl PartialEq for Vertex {
     fn eq(&self, other: &Self) -> bool {
-        self.x == other.x && self.y == other.y && self.is_ghost == other.is_ghost
+        self.is_ghost == other.is_ghost
+            && float_cmp::approx_eq!(f64, self.x, other.x, epsilon = 1.0E-14f64)
+            && float_cmp::approx_eq!(f64, self.y, other.y, epsilon = 1.0E-14f64)
     }
 }
 

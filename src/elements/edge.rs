@@ -1,13 +1,11 @@
+use crate::elements::{bounding_box::*, vertex::*};
 use crate::properties::{
-    continence::*,
-    encroachment::*,
-    distance::*,
+    continence::*, distance::*, encroachment::*, intersection::*, parallel::*,
 };
-use crate::elements::vertex::*;
 use std::rc::Rc;
 
-use std::hash::Hash;
 use std::cmp::Eq;
+use std::hash::Hash;
 
 use std::fmt;
 use std::fmt::Debug;
@@ -64,7 +62,7 @@ impl Edge {
 
         let x_mid = (x1 + x2) / 2.0;
         let y_mid = (y1 + y2) / 2.0;
-        
+
         return Vertex::new(x_mid, y_mid);
     }
 
@@ -104,6 +102,23 @@ impl Edge {
 
         return edge_list;
     }
+
+    pub fn contains(&self, v1: &Rc<Vertex>, v2: &Rc<Vertex>) -> bool {
+        if intersection(&self.v1, &self.v2, v1, v2).is_none() {
+            return false;
+        }
+        if parallel(&self.v1, &self.v2, v1, v2) {
+            let self_bbox =
+                BoundingBox::from_vertices(vec![Rc::clone(&self.v1), Rc::clone(&self.v2)]).unwrap();
+
+            let segment_bbox =
+                BoundingBox::from_vertices(vec![Rc::clone(&v1), Rc::clone(&v2)]).unwrap();
+
+            let intersection_bbox = BoundingBox::intersection(&self_bbox, &self_bbox).unwrap();
+            return intersection_bbox == segment_bbox;
+        }
+        return false;
+    }
 }
 
 #[cfg(test)]
@@ -114,7 +129,7 @@ mod midpoint {
     fn test_midpoint_calculation() {
         let v1 = Rc::new(Vertex::new(0.0, 0.0));
         let v2 = Rc::new(Vertex::new(1.0, 1.2));
-        
+
         let edge = Edge::new(&v1, &v2);
         let midpoint = edge.midpoint();
         assert_eq!(midpoint.x, 0.5);
@@ -130,7 +145,7 @@ mod equality {
     fn test_different_objects() {
         let v1 = Rc::new(Vertex::new(0.0, 0.0));
         let v2 = Rc::new(Vertex::new(1.0, 1.2));
-        
+
         let e1 = Edge::new(&v1, &v2);
         let e2 = Edge::new(&v1, &v2);
         assert!(e1 == e2);
@@ -139,16 +154,16 @@ mod equality {
         let e2 = Rc::new(Edge::new(&v1, &v2));
         assert!(e1 == e2);
     }
-    
+
     #[test]
     fn test_half_edge() {
         let v1 = Rc::new(Vertex::new(0.0, 0.0));
         let v2 = Rc::new(Vertex::new(1.0, 1.2));
-        
+
         let e1 = Edge::new(&v1, &v2);
         let e2 = Edge::new(&v2, &v1);
         assert!(e1 != e2);
-        
+
         let e1 = Rc::new(Edge::new(&v1, &v2));
         let e2 = Rc::new(Edge::new(&v2, &v1));
         assert!(e1 != e2);
