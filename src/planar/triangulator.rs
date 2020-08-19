@@ -1,946 +1,1697 @@
-use crate::properties::{continence::*, orientation::*};
+use crate::elements::{edge::*, polyline::*, triangle::*, vertex::*};
+use crate::planar::{refine_params::*, triangulation::*};
+use crate::properties::continence::*;
 
-use crate::elements::{edge::*, triangle::*, vertex::*};
-
-use crate::planar::triangulation::*;
-
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::fmt;
-use std::mem;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-/* Triangulator will build the triangulation by inserting triangles
-and removing vertices.
-
-    - It starts by creating vertices from vector coordinates and
-    choosing three vertices to compose the first triangle.
-    - For each new triangle, a conflict is searched.
-    - While there is a conflict, it resolves the conflict.
-
-At the end, there should be no vertex left inserting and no conflict
-left resolving. The triangles will detain vertices and coordinates.
-
-A triangle and a vertex are in conflict if the vertex is located
-inside the circumcircle of the triangle.  */
-
 pub struct Triangulator {
-    vertices: Vec<Rc<Vertex>>,
-    triangles: HashSet<Rc<Triangle>>,
-    conflict_map: HashMap<Rc<Triangle>, Rc<Vertex>>,
-    adjacency: HashMap<Rc<Edge>, Rc<Triangle>>,
-}
-
-impl fmt::Display for Triangulator {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Vertices\n");
-        for vertex in self.vertices.iter() {
-            write!(f, "{}\n", vertex);
-        }
-        write!(f, "\nTriangles\n");
-        for triangle in self.triangles.iter() {
-            write!(f, "{}\n", triangle);
-        }
-        write!(f, "\nConflicts\n");
-        for (triangle, vertex) in self.conflict_map.iter() {
-            write!(f, "{} -> {}\n", triangle, vertex);
-        }
-        write!(f, "\nAdjacency\n");
-        for (edge, triangle) in self.adjacency.iter() {
-            write!(f, "{} -> {}\n", edge, triangle);
-        }
-        return write!(f, "");
-    }
+    pub triangulation: RefCell<Triangulation>,
+    pub boundary: Rc<Polyline>,
+    pub holes: HashSet<Rc<Polyline>>,
+    pub vertices: HashSet<Rc<Vertex>>,
+    pub segments: HashSet<Rc<Edge>>,
 }
 
 impl Triangulator {
-    /*
-       TODO:
-           - implement constrained delaunay triangulation
-           - include segments as constraint
-    */
-    pub fn new() -> Self {
+    pub fn new(boundary: &Rc<Polyline>) -> Self {
         Self {
-            vertices: Vec::new(),
-            triangles: HashSet::new(),
-            conflict_map: HashMap::new(),
-            adjacency: HashMap::new(),
-        }
-    }
-
-    pub fn from_vertices(vertices: Vec<Rc<Vertex>>) -> Self {
-        Self {
-            vertices: vertices,
-            triangles: HashSet::new(),
-            conflict_map: HashMap::new(),
-            adjacency: HashMap::new(),
-        }
-    }
-
-    pub fn from_coordinates(vertices_coordinates: Vec<f64>) -> Self {
-        Self {
-            vertices: Vertex::from_coordinates(&vertices_coordinates),
-            triangles: HashSet::new(),
-            conflict_map: HashMap::new(),
-            adjacency: HashMap::new(),
-        }
-    }
-
-    pub fn triangulate(&mut self) {
-        let should_init = self.triangles.len() + self.conflict_map.len() == 0;
-
-        if should_init {
-            self.init();
-        }
-        while self.conflict_map.len() > 0 {
-            self.handle_conflict();
+            triangulation: RefCell::new(Triangulation::new()),
+            boundary: Rc::clone(boundary),
+            holes: HashSet::new(),
+            vertices: HashSet::new(),
+            segments: HashSet::new(),
         }
     }
 
     /**
-     * Removes triangles through flood fill.
-     * Coordinates will define the hole boundary by vertex insertion.
-     * Tringles from inner hole will be removed from boundary to greater depth through adjacency.
+     * Inserts vertex in the triangulation.
+     * If vertex is contained by a hole,
+     * or if it is outside the boundary,
+     * returns the related Polyline.
+     * Else returns self.
      */
-    pub fn insert_hole(&mut self, coordinates: Vec<f64>) {
-        let vertices_list: Vec<Rc<Vertex>> = Vertex::from_coordinates(&coordinates);
-        let edges_list: Vec<Rc<Edge>> = Edge::from_vertices(&vertices_list);
+    pub fn insert_vertices(
+        &mut self,
+        vertices: HashSet<Rc<Vertex>>,
+    ) -> Result<&Self, HashSet<Rc<Vertex>>> {
+        let mut panic_vertices: HashSet<Rc<Vertex>> = HashSet::new();
 
-        let mut pending_edges: Vec<Rc<Edge>> = Vec::new();
+        /* Boundary continence */
+        for vertex in vertices.iter() {
+            if self.boundary.contains(&vertex) != Some(Continence::Inside) {
+                panic_vertices.insert(Rc::clone(vertex));
+                continue;
+            }
 
-        for vertex in vertices_list.iter() {
-            self.insert_vertex(Rc::clone(vertex));
+            for hole in self.holes.iter() {
+                if hole.contains(&vertex) != Some(Continence::Outside) {
+                    panic_vertices.insert(Rc::clone(vertex));
+                    continue;
+                }
+            }
         }
 
+        /* Then retuns error if wrong boundary */
+        if !panic_vertices.is_empty() {
+            return Err(panic_vertices);
+        }
+
+        /* Inserts vertices if they don't exist already */
+        for vertex in vertices.iter() {
+            let mut should_insert = true;
+            for segment in self.segments.iter() {
+                if segment.contains(vertex) {
+                    should_insert = false;
+                    break;
+                }
+            }
+
+            if !should_insert {
+                continue;
+            }
+
+            for existing_vertex in self.vertices.iter() {
+                if existing_vertex == vertex {
+                    should_insert = false;
+                    break;
+                }
+            }
+
+            if should_insert {
+                self.vertices.insert(Rc::clone(vertex));
+            }
+        }
+
+        return Ok(self);
+    }
+
+    /**
+     * Inserts segment
+     * If segment is inside a hole,
+     * or if it is outside the boundary,
+     * returns the related Polyline.
+     * Else returns self.
+     */
+    pub fn insert_segments(
+        &mut self,
+        segments: HashSet<Rc<Edge>>,
+    ) -> Result<&Self, HashSet<Rc<Edge>>> {
+        let mut panic_segments: HashSet<Rc<Edge>> = HashSet::new();
+
+        for segment in segments.iter() {
+            let segment_polyline: Polyline =
+                Polyline::new_opened(vec![Rc::clone(&segment.v1), Rc::clone(&segment.v2)]).unwrap();
+
+            let intersections: HashSet<Rc<Vertex>> =
+                Polyline::intersection_vertices(&segment_polyline, &self.boundary);
+
+            if !intersections.is_empty() {
+                let contains_s1 = self.boundary.contains(&segment.v1) != Some(Continence::Inside);
+                let contains_s2 = self.boundary.contains(&segment.v2) != Some(Continence::Inside);
+                if !contains_s1 || contains_s2 {
+                    panic_segments.insert(Rc::clone(segment));
+                }
+            }
+
+            for hole in self.holes.iter() {
+                let intersections: HashSet<Rc<Vertex>> =
+                    Polyline::intersection_vertices(&segment_polyline, hole);
+
+                if !intersections.is_empty() {
+                    let donot_contains_s1 = hole.contains(&segment.v1) != Some(Continence::Outside);
+                    let donot_contains_s2 = hole.contains(&segment.v2) != Some(Continence::Outside);
+                    if !donot_contains_s1 || donot_contains_s2 {
+                        panic_segments.insert(Rc::clone(segment));
+                    }
+                }
+            }
+        }
+
+        if !panic_segments.is_empty() {
+            return Err(panic_segments);
+        }
+
+        /* Removes vertices if contained by a segment */
+        self.vertices = self
+            .vertices
+            .iter()
+            .filter(|vertex| {
+                for segment in segments.iter() {
+                    if segment.contains(vertex) {
+                        return false;
+                    }
+                }
+                return true;
+            })
+            .cloned()
+            .collect();
+
+        /* Split segments */
+        let new_vertex_pairs = Edge::into_vertex_pairs(segments.iter().cloned().collect());
+        let existing_vertex_pairs =
+            Edge::into_vertex_pairs(self.segments.iter().cloned().collect());
+
+        let splited_segments = split_intersections(
+            &new_vertex_pairs
+                .iter()
+                .chain(existing_vertex_pairs.iter())
+                .cloned()
+                .collect(),
+        );
+        self.segments = Edge::from_vertex_pairs(splited_segments)
+            .iter()
+            .cloned()
+            .collect();
+
+        return Ok(self);
+    }
+
+    /**
+     * Sets boundary.
+     * If new boundary intercepts any existing constraint, returns error
+     * with all intercepting vertices. if there is no boundary, empty set
+     * is returned as error. Else returns Ok<self>.
+     */
+    pub fn insert_hole(&mut self, hole: &Rc<Polyline>) -> Result<&Self, HashSet<Rc<Vertex>>> {
+        let mut intersections: HashSet<Rc<Vertex>> = HashSet::new();
+
+        let possible_intersections = Polyline::intersection_vertices(&self.boundary, hole);
+        if !possible_intersections.is_empty() {
+            for vertex in possible_intersections.iter() {
+                intersections.insert(Rc::clone(vertex));
+            }
+        }
+
+        for existing_hole in self.holes.iter() {
+            let possible_intersections = Polyline::intersection_vertices(&hole, existing_hole);
+            if !possible_intersections.is_empty() {
+                for vertex in possible_intersections.iter() {
+                    intersections.insert(Rc::clone(vertex));
+                }
+            }
+        }
+
+        if intersections.is_empty() {
+            self.holes.insert(Rc::clone(hole));
+            return Ok(self);
+        }
+
+        return Err(intersections);
+    }
+
+    /**
+     * Refine the triangulation.
+     * Returns error if there is wrong input or constraints.
+     * Else returns the refined triangulation.
+     */
+    pub fn refine(&mut self, params: RefineParams) -> Result<&Self, String> {
+        if let Err(error) = self.triangulate() {
+            return Err(error);
+        }
+
+        return Err(String::from("Not implemented yet"));
+    }
+
+    pub fn solve_encroachments(&self) {
+        let mut encroach_map: HashMap<Rc<Edge>, HashSet<Rc<Vertex>>> = HashMap::new();
+
+        let mut delaunay_vertices: HashSet<Rc<Vertex>> = self.triangulation.borrow().vertices();
+        let delaunay_edges: HashSet<Rc<Edge>> = self
+            .segments
+            .iter()
+            .chain(self.boundary.into_edges().iter())
+            .chain(
+                self.holes
+                    .iter()
+                    .map(|polyline| polyline.into_edges())
+                    .flatten()
+                    .collect::<HashSet<Rc<Edge>>>()
+                    .iter(),
+            )
+            .cloned()
+            .collect();
+
+        Self::distribute_encroachments(&delaunay_edges, &mut delaunay_vertices, &mut encroach_map);
+
+        loop {
+            if encroach_map.is_empty() {
+                break;
+            }
+
+            let encroached_edge: Rc<Edge> = Rc::clone(encroach_map.keys().next().unwrap());
+            let mut encroached_vertices: HashSet<Rc<Vertex>> =
+                encroach_map.remove(&encroached_edge).unwrap();
+
+            if let Ok(new_segments) = self.split_segment(&encroached_edge) {
+                Self::distribute_encroachments(
+                    &new_segments,
+                    &mut encroached_vertices,
+                    &mut encroach_map,
+                );
+            } else {
+                panic!(format!("Failed to split segment {}", encroached_edge));
+            }
+        }
+    }
+
+    fn distribute_encroachments(
+        segments: &HashSet<Rc<Edge>>,
+        vertices: &mut HashSet<Rc<Vertex>>,
+        encroach_map: &mut HashMap<Rc<Edge>, HashSet<Rc<Vertex>>>,
+    ) {
+        for edge in segments.iter() {
+            let mut possible_encroached_vertices: HashSet<Rc<Vertex>> = HashSet::new();
+            for vertex in vertices.iter() {
+                if edge.encroach(vertex) == Continence::Inside {
+                    possible_encroached_vertices.insert(Rc::clone(vertex));
+                }
+            }
+            if !possible_encroached_vertices.is_empty() {
+                encroach_map.insert(Rc::clone(edge), possible_encroached_vertices);
+            }
+        }
+    }
+
+    /**
+     * Splitting segments
+     */
+    fn split_segment(&self, segment: &Rc<Edge>) -> Result<HashSet<Rc<Edge>>, String> {
+        let edge_right = Rc::clone(segment);
+        let edge_left = Rc::new(edge_right.opposite());
+
+        let contains_right = self
+            .triangulation
+            .borrow()
+            .adjacency
+            .contains_key(&edge_right);
+
+        let contains_left = self
+            .triangulation
+            .borrow()
+            .adjacency
+            .contains_key(&edge_left);
+
+        if !contains_right || !contains_left {
+            return Err(format!(
+                "Triangulation does not contain segment {}",
+                edge_right
+            ));
+        }
+
+        /* Insert right side */
+        let right_triangle: Rc<Triangle> = Rc::clone(
+            self.triangulation
+                .borrow_mut()
+                .adjacency
+                .get(&edge_right)
+                .unwrap(),
+        );
+
+        let right_midpoint: Rc<Vertex> = Rc::new(edge_right.midpoint());
+        let right_opposite: Rc<Vertex> = right_triangle.opposite_vertex(&edge_right).unwrap();
+        let right_triangle_1 = Rc::new(Triangle::new(
+            &edge_right.v1,
+            &right_midpoint,
+            &right_opposite,
+        ));
+        let right_triangle_2 = Rc::new(Triangle::new(
+            &right_midpoint,
+            &edge_right.v2,
+            &right_opposite,
+        ));
+
+        self.triangulation
+            .borrow_mut()
+            .remove_triangle(&right_triangle);
+        self.triangulation
+            .borrow_mut()
+            .include_triangle(&right_triangle_1);
+        self.triangulation
+            .borrow_mut()
+            .include_triangle(&right_triangle_2);
+
+        /* Insert left side */
+        let left_triangle: Rc<Triangle> = Rc::clone(
+            self.triangulation
+                .borrow_mut()
+                .adjacency
+                .get(&edge_left)
+                .unwrap(),
+        );
+
+        let left_midpoint: Rc<Vertex> = Rc::new(edge_left.midpoint());
+        let left_opposite: Rc<Vertex> = left_triangle.opposite_vertex(&edge_left).unwrap();
+        let left_triangle_1 = Rc::new(Triangle::new(&edge_left.v1, &left_midpoint, &left_opposite));
+        let left_triangle_2 = Rc::new(Triangle::new(&left_midpoint, &edge_left.v2, &left_opposite));
+
+        self.triangulation
+            .borrow_mut()
+            .remove_triangle(&left_triangle);
+        self.triangulation
+            .borrow_mut()
+            .include_triangle(&left_triangle_1);
+        self.triangulation
+            .borrow_mut()
+            .include_triangle(&left_triangle_2);
+
+        /* Return results */
+        let mut included_triangles: HashSet<Rc<Edge>> = HashSet::new();
+
+        included_triangles.insert(Rc::new(Edge::new(&edge_right.v1, &right_midpoint)));
+        included_triangles.insert(Rc::new(Edge::new(&right_midpoint, &edge_right.v1)));
+
+        return Ok(included_triangles);
+    }
+
+    /**
+     * Triangulates
+     * Returns error if there is wrong input or constraints.
+     * Else returns the triangulation.
+     */
+    pub fn triangulate(&mut self) -> Result<&Self, String> {
+        let mut constraint_segments: HashSet<Rc<Edge>> = HashSet::new();
+
+        /* Boundary inclusion */
+        self.include_boundary();
+        let boundary_segments: HashSet<Rc<Edge>> =
+            self.boundary.into_edges().iter().cloned().collect();
+        constraint_segments = constraint_segments
+            .iter()
+            .chain(boundary_segments.iter())
+            .cloned()
+            .collect();
+
+        /* Holes inclusion */
+        let holes: HashSet<Rc<Polyline>> = self.holes.iter().cloned().collect();
+        let holes_segments: HashSet<Rc<Edge>> = HashSet::new();
+        for hole in holes.iter() {
+            let included_segments = self.include_hole(&hole, &constraint_segments);
+            constraint_segments = constraint_segments
+                .iter()
+                .chain(included_segments.iter())
+                .cloned()
+                .collect();
+        }
+
+        /* Inner Segments inclusion */
+        let included_segments = self.include_segments(
+            self.segments.iter().cloned().collect::<HashSet<Rc<Edge>>>(),
+            &constraint_segments,
+        );
+        constraint_segments = constraint_segments
+            .iter()
+            .chain(included_segments.iter())
+            .cloned()
+            .collect();
+
+        /* Inner vertices inclusion */
+        self.include_vertices(
+            self.vertices.iter().cloned().collect::<Vec<Rc<Vertex>>>(),
+            &constraint_segments,
+        );
+        return Ok(self);
+    }
+
+    /**
+     * Inserts boundary into triangulation,
+     * with incremental insertion and
+     * avoids inserting triangles outside boundary
+     */
+    fn include_boundary(&self) {
+        let mut pending_vertices: Vec<Rc<Vertex>> =
+            self.boundary.vertices.iter().cloned().collect();
+
+        let mut conflict_map: HashMap<Rc<Triangle>, Vec<Rc<Vertex>>> = HashMap::new();
+
+        let ghost_vertex: Rc<Vertex> = Rc::new(Vertex::new_ghost());
+        let v1: Rc<Vertex> = pending_vertices.remove(0);
+        let v2: Rc<Vertex> = pending_vertices.remove(0);
+
+        let t1: Rc<Triangle> = Rc::new(Triangle::new(&v1, &v2, &ghost_vertex));
+        let t2: Rc<Triangle> = Rc::new(Triangle::new(&v2, &v1, &ghost_vertex));
+
+        Self::distribute_conflicts_if_inside_boundary(
+            &t1,
+            &mut conflict_map,
+            &mut pending_vertices,
+            &self.boundary,
+        );
+
+        Self::distribute_conflicts_if_inside_boundary(
+            &t2,
+            &mut conflict_map,
+            &mut pending_vertices,
+            &self.boundary,
+        );
+
+        self.triangulation.borrow_mut().include_triangle(&t1);
+        self.triangulation.borrow_mut().include_triangle(&t2);
+
+        while !conflict_map.is_empty() {
+            let next_conflicting_triangle: Rc<Triangle> =
+                Rc::clone(conflict_map.keys().next().unwrap());
+
+            let mut conflicting_vertices: Vec<Rc<Vertex>> =
+                conflict_map.remove(&next_conflicting_triangle).unwrap();
+
+            let conflict_vertex: Rc<Vertex> = conflicting_vertices.pop().unwrap();
+
+            self.triangulation
+                .borrow_mut()
+                .remove_triangle(&next_conflicting_triangle);
+
+            let (e1, e2, e3) = next_conflicting_triangle.inner_edges();
+
+            let mut pending_cavities: Vec<Rc<Edge>> = vec![e1, e2, e3];
+
+            if !conflicting_vertices.is_empty() {
+                /* reinclude conflicts they remaining */
+                pending_vertices.append(&mut conflicting_vertices);
+            }
+
+            while !pending_cavities.is_empty() {
+                let edge: Rc<Edge> = pending_cavities.pop().unwrap();
+                let edge_to_outer_triangle: Rc<Edge> = Rc::new(edge.opposite());
+                let outer_triangle: Rc<Triangle> = Rc::clone(
+                    self.triangulation
+                        .borrow_mut()
+                        .adjacency
+                        .get(&edge_to_outer_triangle)
+                        .unwrap(),
+                );
+
+                let trace_to_conflict = Polyline::new_opened(vec![
+                    Rc::clone(&conflict_vertex),
+                    Rc::new(outer_triangle.center()),
+                ])
+                .unwrap();
+
+                let is_inside_boundary =
+                    Polyline::intersection_vertices(&self.boundary, &trace_to_conflict).is_empty();
+
+                let is_conflicting =
+                    outer_triangle.encircles(&conflict_vertex) != Continence::Outside;
+
+                if is_inside_boundary && is_conflicting {
+                    self.triangulation
+                        .borrow_mut()
+                        .remove_triangle(&outer_triangle);
+                    let (e12, e23, e31) = outer_triangle.inner_edges();
+
+                    /* includes cavities */
+                    if edge_to_outer_triangle == e12 {
+                        pending_cavities.push(e23);
+                        pending_cavities.push(e31);
+                    } else if edge_to_outer_triangle == e23 {
+                        pending_cavities.push(e12);
+                        pending_cavities.push(e31);
+                    } else {
+                        pending_cavities.push(e12);
+                        pending_cavities.push(e23);
+                    }
+                } else {
+                    /* Includes new triangle */
+                    if edge.v1.is_ghost {
+                        let new_triangle =
+                            Rc::new(Triangle::new(&edge.v2, &conflict_vertex, &edge.v1));
+                        self.triangulation
+                            .borrow_mut()
+                            .include_triangle(&new_triangle);
+
+                        Self::distribute_conflicts_if_inside_boundary(
+                            &new_triangle,
+                            &mut conflict_map,
+                            &mut pending_vertices,
+                            &self.boundary,
+                        );
+                    } else if edge.v2.is_ghost {
+                        let new_triangle =
+                            Rc::new(Triangle::new(&conflict_vertex, &edge.v1, &edge.v2));
+                        self.triangulation
+                            .borrow_mut()
+                            .include_triangle(&new_triangle);
+
+                        Self::distribute_conflicts_if_inside_boundary(
+                            &new_triangle,
+                            &mut conflict_map,
+                            &mut pending_vertices,
+                            &self.boundary,
+                        );
+                    } else {
+                        let new_triangle =
+                            Rc::new(Triangle::new(&edge.v1, &edge.v2, &conflict_vertex));
+                        self.triangulation
+                            .borrow_mut()
+                            .include_triangle(&new_triangle);
+
+                        Self::distribute_conflicts_if_inside_boundary(
+                            &new_triangle,
+                            &mut conflict_map,
+                            &mut pending_vertices,
+                            &self.boundary,
+                        );
+                    }
+                }
+            } /* end - while pending edges */
+        } /* end - while conflict maps not empty */
+    }
+
+    /**
+     * Include hole and returns included segments
+     */
+    fn include_hole(
+        &mut self,
+        hole: &Rc<Polyline>,
+        segment_constraints: &HashSet<Rc<Edge>>,
+    ) -> HashSet<Rc<Edge>> {
+        let hole_segments: HashSet<Rc<Edge>> = hole
+            .into_edges()
+            .iter()
+            .cloned()
+            .collect::<HashSet<Rc<Edge>>>();
+
+        let included_segments = self.include_segments(hole_segments, segment_constraints);
+
+        /* Inserting holes */
+        let mut pending_edges: Vec<Rc<Edge>> = Vec::new();
         let ghost_vertex = Rc::new(Vertex::new_ghost());
 
-        /*
-            0-depth triangles are removed
-            At boundary, Ghost triangles are inserted.
-            Inner edges are added to the pending list.
-        */
-        for edge_to_hole in edges_list.iter() {
-            let edge_to_hole = Rc::clone(&edge_to_hole);
-            if let Some(inner_triangle) = self.adjacency.get(&edge_to_hole) {
-                let triangle_to_remove: Rc<Triangle> = Rc::clone(inner_triangle);
-                self.remove_triangle(&triangle_to_remove);
+        for hole_edge in included_segments.iter() {
+            let edge_to_hole = Rc::clone(&hole_edge);
+            if self
+                .triangulation
+                .borrow()
+                .adjacency
+                .contains_key(&edge_to_hole)
+            {
+                let inner_triangle = Rc::clone(
+                    self.triangulation
+                        .borrow()
+                        .adjacency
+                        .get(&edge_to_hole)
+                        .unwrap(),
+                );
 
-                let (e1, e2, e3) = triangle_to_remove.inner_edges();
-                if !edges_list.contains(&e1) {
+                self.triangulation
+                    .borrow_mut()
+                    .remove_triangle(&inner_triangle);
+
+                let (e1, e2, e3) = inner_triangle.inner_edges();
+                if !included_segments.contains(&e1) {
                     pending_edges.push(Rc::new(e1.opposite()));
                 }
-                if !edges_list.contains(&e2) {
+                if !included_segments.contains(&e2) {
                     pending_edges.push(Rc::new(e2.opposite()));
                 }
-                if !edges_list.contains(&e3) {
+                if !included_segments.contains(&e3) {
                     pending_edges.push(Rc::new(e3.opposite()));
                 }
             }
 
-            /*
-                Due to the ghost triangle,
-                a vertex insertion in the hole results in filling the hole.
-            */
             let ghost_triangle = Rc::new(Triangle::new(
                 &edge_to_hole.v1,
                 &edge_to_hole.v2,
                 &ghost_vertex,
             ));
-            self.include_triangle(&ghost_triangle);
+            self.triangulation
+                .borrow_mut()
+                .include_triangle(&ghost_triangle);
         }
 
-        /*
-            Flood fill
-            actual deepth triangles are removed if they exist
-            backward deepth is longer connected by adjacency
-            all possible edges are added to the pending list
-            only n+1 deepth will have remaining triangles to be removed
-        */
+        /* Flood fill - removes possible deeper triangles */
         loop {
             if pending_edges.is_empty() {
                 break;
             }
 
             let edge_to_hole = Rc::clone(&pending_edges.pop().unwrap());
-            if let Some(inner_triangle) = self.adjacency.get(&edge_to_hole) {
-                let triangle_to_remove: Rc<Triangle> = Rc::clone(inner_triangle);
-                self.remove_triangle(&triangle_to_remove);
+            if self
+                .triangulation
+                .borrow()
+                .adjacency
+                .contains_key(&edge_to_hole)
+            {
+                let inner_triangle = Rc::clone(
+                    self.triangulation
+                        .borrow()
+                        .adjacency
+                        .get(&edge_to_hole)
+                        .unwrap(),
+                );
 
-                let (e1, e2, e3) = triangle_to_remove.inner_edges();
+                self.triangulation
+                    .borrow_mut()
+                    .remove_triangle(&inner_triangle);
+
+                let (e1, e2, e3) = inner_triangle.inner_edges();
                 pending_edges.push(Rc::new(e1.opposite()));
                 pending_edges.push(Rc::new(e2.opposite()));
                 pending_edges.push(Rc::new(e3.opposite()));
             }
         }
-    }
+        return included_segments;
+    } /* end - include holes */
 
-    pub fn insert_vertex(&mut self, vertex: Rc<Vertex>) {
-        if let Some(conflicting_triangle) = self
-            .triangles
-            .iter()
-            .find(|triangle| triangle.encircles(&vertex) == Continence::Inside)
-        {
-            let conflicting_triangle = Rc::clone(conflicting_triangle);
-            self.triangles.remove(&conflicting_triangle);
-            self.conflict_map.insert(conflicting_triangle, vertex);
-            self.handle_conflict();
-            return;
-        };
-
-        panic!("Expected to find conflicting triangle to insert vertex");
-    }
-
-    pub fn delete_vertex(&mut self, vertex: Rc<Vertex>) {
-        if let Some(index) = self
-            .vertices
-            .iter()
-            .position(|possible| possible == &vertex)
-        {
-            /* if vertex was not inserted yet, avoids insert and return */
-            self.vertices.remove(index);
-            return;
-        }
-
-        /* Else removes triangles withe the specified vertex and inserts a  */
-        let conflicting_triangles: Vec<Rc<Triangle>> = self
-            .triangles
-            .iter()
-            .filter(|triangle| {
-                let is_v1 = triangle.v1 == vertex;
-                let is_v2 = triangle.v2 == vertex;
-                let is_v3 = triangle.v3 == vertex;
-                return is_v1 || is_v2 || is_v3;
-            })
-            .cloned()
-            .collect();
-
-        for triangle in conflicting_triangles.iter() {
-            if triangle.is_ghost() {
-                panic!("Cannot delete vertex at boundary");
+    /**
+     * Inserts vertices in the triangulation
+     */
+    fn include_vertices(
+        &self,
+        mut vertices: Vec<Rc<Vertex>>,
+        segment_constraints: &HashSet<Rc<Edge>>,
+    ) {
+        let mut conflict_map: HashMap<Rc<Triangle>, Vec<Rc<Vertex>>> = HashMap::new();
+        for possible_triangle in self.triangulation.borrow().triangles.iter() {
+            if vertices.is_empty() {
+                break;
             }
+            Self::distribute_conflicts_if_inside_boundary(
+                possible_triangle,
+                &mut conflict_map,
+                &mut vertices,
+                &self.boundary,
+            );
         }
 
-        for triangle in conflicting_triangles.iter() {
-            self.remove_triangle(triangle);
-        }
+        while !conflict_map.is_empty() {
+            let next_conflicting_triangle: Rc<Triangle> =
+                Rc::clone(conflict_map.keys().next().unwrap());
 
-        let mut vertices_set: HashSet<Rc<Vertex>> = HashSet::new();
+            let mut conflicting_vertices: Vec<Rc<Vertex>> =
+                conflict_map.remove(&next_conflicting_triangle).unwrap();
 
-        for triangle in conflicting_triangles.iter() {
-            vertices_set.insert(Rc::clone(&triangle.v1));
-            vertices_set.insert(Rc::clone(&triangle.v2));
-            vertices_set.insert(Rc::clone(&triangle.v3));
-        }
+            let conflict_vertex: Rc<Vertex> = conflicting_vertices.pop().unwrap();
 
-        let vertices_vec: Vec<Rc<Vertex>> = vertices_set
-            .iter()
-            .filter(|&possible| *possible != vertex)
-            .cloned()
-            .collect();
+            self.triangulation
+                .borrow_mut()
+                .remove_triangle(&next_conflicting_triangle);
 
-        let mut inner_triangulation = Self::from_vertices(vertices_vec);
-        inner_triangulation.triangulate();
+            let (e1, e2, e3) = next_conflicting_triangle.inner_edges();
 
-        self.merge_triangles(inner_triangulation);
-    }
+            let mut pending_cavities: Vec<Rc<Edge>> = vec![e1, e2, e3];
 
-    pub fn export(&self) -> Triangulation {
-        /* Separates solid triangles only */
-        let solid_triangles: HashSet<Rc<Triangle>> = self
-            .triangles
-            .iter()
-            .filter(|triangle| !triangle.is_ghost())
-            .cloned()
-            .collect();
-
-        /* HashSet will avoid duplicates */
-        let mut vertices_set: HashSet<Rc<Vertex>> = HashSet::new();
-        for triangle in solid_triangles.iter() {
-            vertices_set.insert(Rc::clone(&triangle.v1));
-            vertices_set.insert(Rc::clone(&triangle.v2));
-            vertices_set.insert(Rc::clone(&triangle.v3));
-        }
-
-        /* vertices array sorted by position */
-        let mut vertices_vec: Vec<Rc<Vertex>> = vertices_set.iter().cloned().collect();
-        vertices_vec.sort();
-
-        /* mapping of vertex into its index */
-        let mut vertices_index_mapping: HashMap<Rc<Vertex>, usize> = HashMap::new();
-        for index in 0..vertices_vec.len() {
-            let vertex = Rc::clone(vertices_vec.get(index).unwrap());
-            vertices_index_mapping.insert(vertex, index);
-        }
-
-        let mut coordinates: Vec<f64> = Vec::new();
-        for vertex in vertices_vec.iter() {
-            coordinates.push(vertex.x);
-            coordinates.push(vertex.y);
-        }
-
-        let mut triangle_index_array: Vec<usize> = Vec::new();
-        for triangle in solid_triangles.iter() {
-            let v1_index = vertices_index_mapping.get(&triangle.v1).unwrap();
-            let v2_index = vertices_index_mapping.get(&triangle.v2).unwrap();
-            let v3_index = vertices_index_mapping.get(&triangle.v3).unwrap();
-            let indices = vec![v1_index, v2_index, v3_index];
-            let min_index = indices.iter().min().unwrap();
-            if min_index == &v1_index {
-                triangle_index_array.push(*v1_index);
-                triangle_index_array.push(*v2_index);
-                triangle_index_array.push(*v3_index);
-            } else if min_index == &v2_index {
-                triangle_index_array.push(*v2_index);
-                triangle_index_array.push(*v3_index);
-                triangle_index_array.push(*v1_index);
-            } else {
-                triangle_index_array.push(*v3_index);
-                triangle_index_array.push(*v1_index);
-                triangle_index_array.push(*v2_index);
+            if !conflicting_vertices.is_empty() {
+                /* reinclude conflicts they remaining */
+                vertices.append(&mut conflicting_vertices);
             }
-        }
 
-        return Triangulation::from(coordinates, triangle_index_array);
-    }
+            while !pending_cavities.is_empty() {
+                let edge: Rc<Edge> = pending_cavities.pop().unwrap();
+                let edge_to_outer_triangle: Rc<Edge> = Rc::new(edge.opposite());
+                let outer_triangle: Rc<Triangle> = Rc::clone(
+                    self.triangulation
+                        .borrow()
+                        .adjacency
+                        .get(&edge_to_outer_triangle)
+                        .unwrap(),
+                );
 
-    pub fn vertices_size(&self) -> usize {
-        let mut vertices_set: HashSet<Rc<Vertex>> = self.vertices.iter().cloned().collect();
-        for triangle in self.triangles.iter() {
-            vertices_set.insert(Rc::clone(&triangle.v1));
-            vertices_set.insert(Rc::clone(&triangle.v2));
-            vertices_set.insert(Rc::clone(&triangle.v3));
-        }
+                let is_conflicting =
+                    outer_triangle.encircles(&conflict_vertex) == Continence::Inside;
 
-        return vertices_set
+                let is_constrained = segment_constraints.contains(&edge_to_outer_triangle);
+
+                if is_conflicting && !is_constrained {
+                    self.triangulation
+                        .borrow_mut()
+                        .remove_triangle(&outer_triangle);
+                    let (e12, e23, e31) = outer_triangle.inner_edges();
+
+                    if let Some(mut conflicting_vertices) = conflict_map.remove(&outer_triangle) {
+                        vertices.append(&mut conflicting_vertices);
+                    }
+
+                    /* includes cavities */
+                    if edge_to_outer_triangle == e12 {
+                        pending_cavities.push(e23);
+                        pending_cavities.push(e31);
+                    } else if edge_to_outer_triangle == e23 {
+                        pending_cavities.push(e12);
+                        pending_cavities.push(e31);
+                    } else {
+                        pending_cavities.push(e12);
+                        pending_cavities.push(e23);
+                    }
+                } else {
+                    /* Includes new triangle */
+                    if edge.v1.is_ghost {
+                        let new_triangle =
+                            Rc::new(Triangle::new(&edge.v2, &conflict_vertex, &edge.v1));
+                        self.triangulation
+                            .borrow_mut()
+                            .include_triangle(&new_triangle);
+
+                        Self::distribute_conflicts_if_inside_boundary(
+                            &new_triangle,
+                            &mut conflict_map,
+                            &mut vertices,
+                            &self.boundary,
+                        );
+                    } else if edge.v2.is_ghost {
+                        let new_triangle =
+                            Rc::new(Triangle::new(&conflict_vertex, &edge.v1, &edge.v2));
+                        self.triangulation
+                            .borrow_mut()
+                            .include_triangle(&new_triangle);
+
+                        Self::distribute_conflicts_if_inside_boundary(
+                            &new_triangle,
+                            &mut conflict_map,
+                            &mut vertices,
+                            &self.boundary,
+                        );
+                    } else {
+                        let new_triangle =
+                            Rc::new(Triangle::new(&edge.v1, &edge.v2, &conflict_vertex));
+                        self.triangulation
+                            .borrow_mut()
+                            .include_triangle(&new_triangle);
+
+                        Self::distribute_conflicts_if_inside_boundary(
+                            &new_triangle,
+                            &mut conflict_map,
+                            &mut vertices,
+                            &self.boundary,
+                        );
+                    }
+                }
+            } /* end - while pending edges */
+        } /* end - distributing vertices */
+    } /* end - include vertices method */
+
+    /**
+     * Returns included Segments possibly splitted
+     */
+    fn include_segments(
+        &mut self,
+        mut segments: HashSet<Rc<Edge>>,
+        segment_constraints: &HashSet<Rc<Edge>>,
+    ) -> HashSet<Rc<Edge>> {
+        let segments_vertices: Vec<Rc<Vertex>> = segments
             .iter()
-            .filter(|vertex| !vertex.is_ghost)
-            .count();
-    }
-
-    pub fn triangles_size(&self) -> usize {
-        let mut triangles_set: HashSet<Rc<Triangle>> = self.triangles.iter().cloned().collect();
-
-        for triangle in self.conflict_map.keys() {
-            triangles_set.insert(Rc::clone(triangle));
-            triangles_set.insert(Rc::clone(triangle));
-            triangles_set.insert(Rc::clone(triangle));
-        }
-
-        return triangles_set
+            .map(|edge| vec![Rc::clone(&edge.v1), Rc::clone(&edge.v2)])
+            .flatten()
+            .collect::<HashSet<Rc<Vertex>>>()
             .iter()
-            .filter(|triangle| !triangle.is_ghost())
-            .count();
-    }
+            .cloned()
+            .collect::<Vec<Rc<Vertex>>>();
 
-    fn init(&mut self) {
-        let ghost_vertex = Rc::new(Vertex::new_ghost());
+        self.include_vertices(segments_vertices, segment_constraints);
 
-        let mut v3 = self.vertices.pop().unwrap();
-        let mut v2 = self.vertices.pop().unwrap();
-        let mut v1 = self.vertices.pop().unwrap();
-
-        /* Loops until 3 non colinear vertices are found */
+        let mut counter = 0;
         loop {
-            match orientation(&v1, &v2, &v3) {
-                Orientation::Counterclockwise => {
-                    break;
-                }
-                Orientation::Clockwise => {
-                    mem::swap(&mut v2, &mut v3);
-                    break;
-                }
-                Orientation::Colinear => {
-                    self.vertices.insert(0, v3);
-                    v3 = self.vertices.pop().unwrap();
-                }
-            }; /* match orient_2d */
-        } /* loop */
+            let existing_segments = self.triangulation.borrow().edges();
+            let mut missing_segments: Vec<Rc<Edge>> = segments
+                .iter()
+                .filter(|edge| !existing_segments.contains(&Rc::clone(edge)))
+                .cloned()
+                .collect();
 
-        let solid_triangle = Rc::new(Triangle::new(&v1, &v2, &v3));
-        let tghost_1 = Rc::new(Triangle::new(&v2, &v1, &ghost_vertex));
-        let tghost_2 = Rc::new(Triangle::new(&v3, &v2, &ghost_vertex));
-        let tghost_3 = Rc::new(Triangle::new(&v1, &v3, &ghost_vertex));
-
-        self.include_triangle(&solid_triangle);
-        self.include_triangle(&tghost_1);
-        self.include_triangle(&tghost_2);
-        self.include_triangle(&tghost_3);
-    }
-
-    fn handle_conflict(&mut self) {
-        if self.conflict_map.is_empty() {
-            panic!("No conflit to handle");
-        }
-
-        /* starts by disassembling the conflicting triangle */
-        let triangle: Rc<Triangle> = Rc::clone(self.conflict_map.keys().next().unwrap());
-        let vertex_to_insert = self.conflict_map.remove(&triangle).unwrap();
-        self.remove_inner_adjacency(&triangle);
-
-        let (e12, e23, e31) = triangle.inner_edges();
-
-        /* A list of edges and possible cavities to analyse */
-        let mut pending_cavities: Vec<Rc<Edge>> = vec![e12, e23, e31];
-
-        /* Recursive implementation to digCavity */
-        loop {
-            if pending_cavities.is_empty() {
+            if missing_segments.is_empty() {
                 break;
             }
 
-            let edge: Rc<Edge> = pending_cavities.pop().unwrap();
-            let edge_to_outer_triangle: Rc<Edge> = Rc::new(edge.opposite());
+            self.include_vertices(
+                missing_segments
+                    .iter()
+                    .map(|edge| Rc::new(edge.midpoint()))
+                    .collect(),
+                &segment_constraints
+                    .iter()
+                    .chain(segments.iter())
+                    .cloned()
+                    .collect::<HashSet<Rc<Edge>>>(),
+            );
 
-            /* adjacent triangle is met by opposite half edge: end -> begin */
-            let outer_triangle: Rc<Triangle> =
-                Rc::clone(self.adjacency.get(&edge_to_outer_triangle).unwrap());
+            while let Some(segment) = missing_segments.pop() {
+                let midpoint = Rc::new(segment.midpoint());
+                let splited_segment_right = Rc::new(Edge::new(&segment.v1, &midpoint));
+                let splited_segment_left = Rc::new(Edge::new(&midpoint, &segment.v2));
 
-            /* If the cavity encircles the vertex, new cavities are to be analysed */
-            if outer_triangle.encircles(&vertex_to_insert) == Continence::Inside {
-                /* disassembles */
-                self.remove_triangle(&outer_triangle);
-                let (e12, e23, e31) = outer_triangle.inner_edges();
+                segments.remove(&segment);
+                segments.insert(splited_segment_left);
+                segments.insert(splited_segment_right);
+            }
 
-                /* includes cavities */
-                if edge_to_outer_triangle == e12 {
-                    pending_cavities.push(e23);
-                    pending_cavities.push(e31);
-                } else if edge_to_outer_triangle == e23 {
-                    pending_cavities.push(e12);
-                    pending_cavities.push(e31);
-                } else {
-                    pending_cavities.push(e12);
-                    pending_cavities.push(e23);
-                }
+            if counter == 2 {
+                break;
             } else {
-                /* Includes new triangle */
-                if edge.v1.is_ghost {
-                    let new_triangle =
-                        Rc::new(Triangle::new(&edge.v2, &vertex_to_insert, &edge.v1));
-                    self.include_triangle(&new_triangle);
-                } else if edge.v2.is_ghost {
-                    let new_triangle =
-                        Rc::new(Triangle::new(&vertex_to_insert, &edge.v1, &edge.v2));
-                    self.include_triangle(&new_triangle);
-                } else {
-                    let new_triangle =
-                        Rc::new(Triangle::new(&edge.v1, &edge.v2, &vertex_to_insert));
-                    self.include_triangle(&new_triangle);
-                }
-            }
-        } /* loop */
-    } /* handle_conflict */
-
-    fn include_triangle(&mut self, triangle: &Rc<Triangle>) {
-        self.include_inner_adjacency(triangle);
-
-        match self.vertices.iter().position(|vertex| {
-            /* searchs for conflicting vertex */
-            triangle.encircles(vertex) == Continence::Inside
-        }) {
-            Some(index) => {
-                let conflicting_vertex = self.vertices.remove(index);
-                self.conflict_map
-                    .insert(Rc::clone(triangle), Rc::clone(&conflicting_vertex));
-            }
-            None => {
-                self.triangles.insert(Rc::clone(triangle));
+                counter = counter + 1;
             }
         }
-    }
+        return segments;
+    } /* end - include segments method */
 
-    fn remove_triangle(&mut self, triangle: &Rc<Triangle>) {
-        self.remove_inner_adjacency(triangle);
+    fn distribute_conflicts_if_inside_boundary(
+        triangle: &Rc<Triangle>,
+        conflict_map: &mut HashMap<Rc<Triangle>, Vec<Rc<Vertex>>>,
+        vertices: &mut Vec<Rc<Vertex>>,
+        boundary: &Polyline,
+    ) {
+        let mut distributed_conflicts: Vec<Rc<Vertex>> = Vec::new();
 
-        if self.triangles.remove(triangle) {
-            return;
+        for _ in 0..vertices.len() {
+            let pending_vertex: Rc<Vertex> = vertices.remove(0);
+            let has_conflict = triangle.encircles(&pending_vertex) != Continence::Outside;
+
+            let mut is_inside_boundary = false;
+            if triangle.is_ghost() {
+                let p2 = Polyline::new_closed(vec![
+                    Rc::clone(&triangle.v1),
+                    Rc::clone(&triangle.v2),
+                    Rc::clone(&pending_vertex),
+                ])
+                .unwrap();
+                let (subtraction_list, _) = Polyline::subtraction(&p2, &boundary);
+                is_inside_boundary = subtraction_list.is_empty();
+            } else {
+                let p2 = Polyline::new_opened(vec![
+                    Rc::new(triangle.center()),
+                    Rc::clone(&pending_vertex),
+                ])
+                .unwrap();
+                let intersections = Polyline::intersection_vertices(&boundary, &p2);
+                is_inside_boundary = intersections.is_empty();
+            }
+
+            if has_conflict && is_inside_boundary {
+                distributed_conflicts.push(pending_vertex);
+                continue;
+            }
+
+            vertices.push(pending_vertex);
         }
-
-        /*  if the triangle has a conflict, vertex should be moved back to vertices vec */
-        if let Some(vertex) = self.conflict_map.remove(triangle) {
-            self.vertices.push(vertex);
-            return;
-        }
-
-        panic!("Could not remove specied triangle");
-    }
-
-    fn include_inner_adjacency(&mut self, triangle: &Rc<Triangle>) {
-        let (e12, e23, e31) = triangle.inner_edges();
-        self.adjacency.insert(e12, Rc::clone(triangle));
-        self.adjacency.insert(e23, Rc::clone(triangle));
-        self.adjacency.insert(e31, Rc::clone(triangle));
-    }
-
-    fn remove_inner_adjacency(&mut self, triangle: &Rc<Triangle>) {
-        let (e12, e23, e31) = triangle.inner_edges();
-        self.adjacency.remove(&e12);
-        self.adjacency.remove(&e23);
-        self.adjacency.remove(&e31);
-    }
-
-    /**
-     * Should be used against triangulations with no conflicts triangulations
-     */
-    fn merge_triangles(&mut self, other: Self) {
-        let solid_triangle_vec: Vec<Rc<Triangle>> = other
-            .triangles
-            .iter()
-            .filter(|triangle| !triangle.is_ghost())
-            .cloned()
-            .collect();
-
-        for triangle in solid_triangle_vec {
-            self.triangles.insert(Rc::clone(&triangle));
-        }
-
-        for (edge, val) in other.adjacency.iter() {
-            self.adjacency.insert(Rc::clone(edge), Rc::clone(val));
+        if !distributed_conflicts.is_empty() {
+            conflict_map.insert(Rc::clone(&triangle), distributed_conflicts);
         }
     }
 }
 
 #[cfg(test)]
-mod constructor {
+mod boundaries {
     use super::*;
 
     #[test]
-    fn test_constructor() {
-        let vertex_indices = vec![0.0, 0.0, 2.0, 0.0, 1.0, 2.0];
-        let builder = Triangulator::from_coordinates(vertex_indices);
-        assert_eq!(builder.vertices.len(), 3);
-    }
-}
+    fn include_boundary_sample_1() {
+        /* hexagon */
+        let mut vertices: Vec<Rc<Vertex>> = Vec::new();
+        vertices.push(Rc::new(Vertex::new(1.0, 0.0)));
+        vertices.push(Rc::new(Vertex::new(2.0, 0.0)));
+        vertices.push(Rc::new(Vertex::new(3.0, 1.0)));
+        vertices.push(Rc::new(Vertex::new(2.0, 2.0)));
+        vertices.push(Rc::new(Vertex::new(1.0, 2.0)));
+        vertices.push(Rc::new(Vertex::new(0.0, 1.0)));
 
-#[cfg(test)]
-mod init {
-    use super::*;
+        let boundary = Rc::new(Polyline::new_closed(vertices).unwrap());
+        let mut triangulator = Triangulator::new(&boundary);
+        triangulator.include_boundary();
 
-    #[test]
-    fn test_init_single_triangle() {
-        let vertex_indices = vec![0.0, 0.0, 2.0, 0.0, 1.0, 2.0];
-        let mut builder = Triangulator::from_coordinates(vertex_indices);
-        builder.init();
-        assert_eq!(builder.vertices.len(), 0);
-        assert_eq!(builder.triangles.len(), 4);
-    }
-
-    #[test]
-    fn test_init_triangle_with_conflict() {
-        let vertex_indices = vec![0.0, 0.0, 2.0, 0.0, 1.0, 2.0, 1.0, 1.0];
-        let mut builder = Triangulator::from_coordinates(vertex_indices);
-        builder.init();
-        assert_eq!(builder.vertices.len(), 0);
-        assert_eq!(builder.triangles.len() + builder.conflict_map.len(), 4);
-    }
-}
-
-#[cfg(test)]
-mod triangulate {
-    use super::*;
-
-    #[test]
-    fn test_triangulate_4_vertices() {
-        let vertex_indices = vec![0.0, 0.0, 2.0, 0.0, 1.0, 2.0, 1.0, 1.0];
-        let mut builder = Triangulator::from_coordinates(vertex_indices);
-        builder.triangulate();
-        assert_eq!(builder.vertices.len(), 0);
-        assert_eq!(builder.triangles.len(), 6);
-        assert_eq!(builder.conflict_map.len(), 0);
-    }
-}
-
-#[cfg(test)]
-mod delete_vertex {
-    use super::*;
-
-    #[test]
-    fn test_remove_from_inside_triangle() {
-        let vertex_indices = vec![0.0, 0.0, 2.0, 0.0, 1.0, 2.0, 1.0, 1.0];
-        let mut triangulator = Triangulator::from_coordinates(vertex_indices);
-        triangulator.triangulate();
-        triangulator.delete_vertex(Rc::new(Vertex::new(1.0, 1.0)));
         let solid_triangles: Vec<Rc<Triangle>> = triangulator
+            .triangulation
+            .borrow()
             .triangles
             .iter()
             .filter(|triangle| !triangle.is_ghost())
             .cloned()
             .collect();
-        assert_eq!(solid_triangles.len(), 1);
+        assert_eq!(solid_triangles.len(), 4);
     }
 
     #[test]
-    fn test_remove_from_inside_hexagon() {
-        let vertex_indices = vec![
-            1.0, 0.0, 2.0, 0.0, 3.0, 1.0, 2.0, 2.0, 1.0, 2.0, 0.0, 1.0, 1.2, 1.0, 2.0, 1.0,
-        ];
-        /*
-           (1.0, 0.0)
-           (2.0, 0.0)
-           (3.0, 1.0)
-           (2.0, 2.0)
-           (1.0, 2.0)
-           (0.0, 1.0)
-           (1.2, 1.0)
-           (2.0, 1.0)
-        */
-        let mut triangulator = Triangulator::from_coordinates(vertex_indices);
-        triangulator.triangulate();
-        let solid_triangles: Vec<Rc<Triangle>> = triangulator
-            .triangles
-            .iter()
-            .filter(|triangle| !triangle.is_ghost())
-            .cloned()
-            .collect();
-        assert_eq!(solid_triangles.len(), 8);
+    fn include_boundary_sample_2() {
+        /* zigzag path */
+        let mut vertices: Vec<Rc<Vertex>> = Vec::new();
+        vertices.push(Rc::new(Vertex::new(0.0, 1.0)));
+        vertices.push(Rc::new(Vertex::new(1.0, 1.5)));
+        vertices.push(Rc::new(Vertex::new(2.0, 1.0)));
+        vertices.push(Rc::new(Vertex::new(3.0, 1.5)));
+        vertices.push(Rc::new(Vertex::new(3.0, 3.5)));
+        vertices.push(Rc::new(Vertex::new(2.0, 3.0)));
+        vertices.push(Rc::new(Vertex::new(1.0, 3.5)));
+        vertices.push(Rc::new(Vertex::new(0.0, 3.0)));
 
-        triangulator.delete_vertex(Rc::new(Vertex::new(2.0, 1.0)));
+        let boundary = Rc::new(Polyline::new_closed(vertices).unwrap());
+        let mut triangulator = Triangulator::new(&boundary);
+        triangulator.include_boundary();
+
         let solid_triangles: Vec<Rc<Triangle>> = triangulator
+            .triangulation
+            .borrow()
             .triangles
             .iter()
             .filter(|triangle| !triangle.is_ghost())
             .cloned()
             .collect();
+
         assert_eq!(solid_triangles.len(), 6);
     }
 
     #[test]
-    #[should_panic]
-    fn test_panics_at_boundary() {
-        let vertex_indices = vec![0.0, 0.0, 2.0, 0.0, 1.0, 2.0, 1.0, 1.0];
-        let mut triangulator = Triangulator::from_coordinates(vertex_indices);
-        triangulator.triangulate();
-        triangulator.delete_vertex(Rc::new(Vertex::new(2.0, 0.0)));
+    fn include_boundary_sample_3() {
+        /* concave domain */
+        let mut vertices: Vec<Rc<Vertex>> = Vec::new();
+        vertices.push(Rc::new(Vertex::new(4.0, 1.0)));
+        vertices.push(Rc::new(Vertex::new(5.0, 1.0)));
+        vertices.push(Rc::new(Vertex::new(6.0, 2.0)));
+        vertices.push(Rc::new(Vertex::new(4.0, 4.0)));
+        vertices.push(Rc::new(Vertex::new(3.0, 4.0)));
+        vertices.push(Rc::new(Vertex::new(1.0, 2.0)));
+        vertices.push(Rc::new(Vertex::new(2.0, 1.0)));
+        vertices.push(Rc::new(Vertex::new(3.0, 1.0)));
+        vertices.push(Rc::new(Vertex::new(2.0, 2.0)));
+        vertices.push(Rc::new(Vertex::new(3.0, 3.0)));
+        vertices.push(Rc::new(Vertex::new(4.0, 3.0)));
+        vertices.push(Rc::new(Vertex::new(5.0, 2.0)));
+
+        let boundary = Rc::new(Polyline::new_closed(vertices).unwrap());
+        let mut triangulator = Triangulator::new(&boundary);
+        triangulator.include_boundary();
+
+        let solid_triangles: Vec<Rc<Triangle>> = triangulator
+            .triangulation
+            .borrow()
+            .triangles
+            .iter()
+            .filter(|triangle| !triangle.is_ghost())
+            .cloned()
+            .collect();
+
+        assert_eq!(solid_triangles.len(), 10);
     }
 }
 
 #[cfg(test)]
-mod insert_vertex {
+mod include_holes {
     use super::*;
 
     #[test]
-    fn test_insert_outside() {
-        let vertex_indices = vec![0.0, 0.0, 2.0, 0.0, 1.0, 2.0];
-        let mut triangulator = Triangulator::from_coordinates(vertex_indices);
-        triangulator.triangulate();
+    fn sample_1() {
+        let v1 = Rc::new(Vertex::new(1.0, 1.0));
+        let v2 = Rc::new(Vertex::new(5.0, 1.0));
+        let v3 = Rc::new(Vertex::new(5.0, 5.0));
+        let v4 = Rc::new(Vertex::new(1.0, 5.0));
 
-        let new_vertex = Rc::new(Vertex::new(2.0, 2.0));
-        triangulator.insert_vertex(new_vertex);
-        let solid_triangles: Vec<Rc<Triangle>> = triangulator
-            .triangles
-            .iter()
-            .filter(|triangle| !triangle.is_ghost())
-            .cloned()
-            .collect();
-        assert_eq!(solid_triangles.len(), 2);
-    }
-
-    #[test]
-    fn test_inside_triangle() {
-        let vertex_indices = vec![0.0, 0.0, 2.0, 0.0, 1.0, 2.0];
-        let mut triangulator = Triangulator::from_coordinates(vertex_indices);
-        triangulator.triangulate();
-        let solid_triangles: Vec<Rc<Triangle>> = triangulator
-            .triangles
-            .iter()
-            .filter(|triangle| !triangle.is_ghost())
-            .cloned()
-            .collect();
-        assert_eq!(solid_triangles.len(), 1);
-
-        let new_vertex = Rc::new(Vertex::new(1.0, 1.0));
-        triangulator.insert_vertex(new_vertex);
-        let solid_triangles: Vec<Rc<Triangle>> = triangulator
-            .triangles
-            .iter()
-            .filter(|triangle| !triangle.is_ghost())
-            .cloned()
-            .collect();
-        assert_eq!(solid_triangles.len(), 3);
-    }
-
-    #[test]
-    fn test_inside_hexagon() {
-        let vertex_indices = vec![
-            1.0, 0.0, 2.0, 0.0, 3.0, 1.0, 2.0, 2.0, 1.0, 2.0, 0.0, 1.0, 1.2, 1.0,
+        let boundary: Vec<Rc<Vertex>> = vec![
+            Rc::clone(&v1),
+            Rc::clone(&v2),
+            Rc::clone(&v3),
+            Rc::clone(&v4),
         ];
-        /*
-           (1.0, 0.0)
-           (2.0, 0.0)
-           (3.0, 1.0)
-           (2.0, 2.0)
-           (1.0, 2.0)
-           (0.0, 1.0)
-           (1.2, 1.0)
-           (2.0, 1.0)
-        */
-        let mut triangulator = Triangulator::from_coordinates(vertex_indices);
-        triangulator.triangulate();
-        let solid_triangles: Vec<Rc<Triangle>> = triangulator
+        let boundary = Rc::new(Polyline::new_closed(boundary).unwrap());
+
+        let v5 = Rc::new(Vertex::new(3.0, 2.0));
+        let v6 = Rc::new(Vertex::new(4.0, 3.0));
+        let v7 = Rc::new(Vertex::new(3.0, 4.0));
+        let v8 = Rc::new(Vertex::new(2.0, 3.0));
+
+        let hole: Vec<Rc<Vertex>> = vec![
+            Rc::clone(&v5),
+            Rc::clone(&v6),
+            Rc::clone(&v7),
+            Rc::clone(&v8),
+        ];
+        let hole = Rc::new(Polyline::new_closed(hole).unwrap());
+
+        let mut triangulator = Triangulator::new(&boundary);
+        triangulator.insert_hole(&hole);
+        triangulator.include_boundary();
+        triangulator.include_hole(&hole, &HashSet::new());
+
+        let ghost_triangles: Vec<Rc<Triangle>> = triangulator
+            .triangulation
+            .borrow()
             .triangles
             .iter()
-            .filter(|triangle| !triangle.is_ghost())
+            .filter(|triangle| triangle.is_ghost())
             .cloned()
             .collect();
-        assert_eq!(solid_triangles.len(), 6);
 
-        let new_vertex = Rc::new(Vertex::new(2.0, 1.0));
-        triangulator.insert_vertex(new_vertex);
-        let solid_triangles: Vec<Rc<Triangle>> = triangulator
+        let ghost_vertex = Rc::new(Vertex::new_ghost());
+        let ghost_56 = Rc::new(Triangle::new(&v5, &v6, &ghost_vertex));
+        let ghost_67 = Rc::new(Triangle::new(&v6, &v7, &ghost_vertex));
+        let ghost_78 = Rc::new(Triangle::new(&v7, &v8, &ghost_vertex));
+        let ghost_85 = Rc::new(Triangle::new(&v8, &v5, &ghost_vertex));
+
+        assert!(ghost_triangles.contains(&ghost_56));
+        assert!(ghost_triangles.contains(&ghost_67));
+        assert!(ghost_triangles.contains(&ghost_78));
+        assert!(ghost_triangles.contains(&ghost_85));
+    }
+
+    #[test]
+    fn sample_2() {
+        let v1 = Rc::new(Vertex::new(1.0, 1.0));
+        let v2 = Rc::new(Vertex::new(6.0, 1.0));
+        let v3 = Rc::new(Vertex::new(6.0, 5.0));
+        let v4 = Rc::new(Vertex::new(1.0, 5.0));
+
+        let boundary: Vec<Rc<Vertex>> = vec![
+            Rc::clone(&v1),
+            Rc::clone(&v2),
+            Rc::clone(&v3),
+            Rc::clone(&v4),
+        ];
+        let boundary = Rc::new(Polyline::new_closed(boundary).unwrap());
+
+        let v5 = Rc::new(Vertex::new(3.0, 2.0));
+        let v6 = Rc::new(Vertex::new(4.0, 2.0));
+        let v7 = Rc::new(Vertex::new(5.0, 3.0));
+        let v8 = Rc::new(Vertex::new(4.0, 4.0));
+        let v9 = Rc::new(Vertex::new(3.0, 4.0));
+        let v10 = Rc::new(Vertex::new(2.0, 3.0));
+
+        let hole: Vec<Rc<Vertex>> = vec![
+            Rc::clone(&v5),
+            Rc::clone(&v6),
+            Rc::clone(&v7),
+            Rc::clone(&v8),
+            Rc::clone(&v9),
+            Rc::clone(&v10),
+        ];
+        let hole = Rc::new(Polyline::new_closed(hole).unwrap());
+
+        let mut triangulator = Triangulator::new(&boundary);
+        triangulator.insert_hole(&hole);
+        triangulator.include_boundary();
+        triangulator.include_hole(&hole, &HashSet::new());
+
+        let ghost_triangles: Vec<Rc<Triangle>> = triangulator
+            .triangulation
+            .borrow()
             .triangles
             .iter()
-            .filter(|triangle| !triangle.is_ghost())
+            .filter(|triangle| triangle.is_ghost())
             .cloned()
             .collect();
-        assert_eq!(solid_triangles.len(), 8);
-    }
-}
 
-#[cfg(test)]
-mod insert_hole {
-    use super::*;
+        let ghost_vertex = Rc::new(Vertex::new_ghost());
+        let ghost_5 = Rc::new(Triangle::new(&v5, &v6, &ghost_vertex));
+        let ghost_6 = Rc::new(Triangle::new(&v6, &v7, &ghost_vertex));
+        let ghost_7 = Rc::new(Triangle::new(&v7, &v8, &ghost_vertex));
+        let ghost_8 = Rc::new(Triangle::new(&v8, &v9, &ghost_vertex));
+        let ghost_9 = Rc::new(Triangle::new(&v9, &v10, &ghost_vertex));
+        let ghost_10 = Rc::new(Triangle::new(&v10, &v5, &ghost_vertex));
 
-    /**
-     * Simple 0-depth hole insertion
-     */
-    #[test]
-    fn test_triangle_hole_inside_triangle() {
-        let mut triangulator = Triangulator::from_coordinates(vec![0.0, 0.0, 10.0, 0.0, 5.0, 10.0]);
-        /*
-            ( 0.0,  0.0)
-            (10.0,  0.0)
-            ( 5.0, 10.0)
-        */
-        let hole_path = vec![5.0, 2.0, 4.0, 3.0, 3.0, 3.0];
-        /*
-           (5.0, 2.0)
-           (4.0, 3.0)
-           (3.0, 3.0)
-        */
-
-        triangulator.triangulate();
-        triangulator.insert_hole(hole_path);
-
-        assert_eq!(triangulator.vertices_size(), 6);
-        assert_eq!(triangulator.triangles_size(), 6);
+        assert!(ghost_triangles.contains(&ghost_5));
+        assert!(ghost_triangles.contains(&ghost_6));
+        assert!(ghost_triangles.contains(&ghost_7));
+        assert!(ghost_triangles.contains(&ghost_8));
+        assert!(ghost_triangles.contains(&ghost_9));
+        assert!(ghost_triangles.contains(&ghost_10));
     }
 
-    /**
-     * Defines requirement for flood fill in hole insertion.
-     */
     #[test]
-    fn test_star_inside_square() {
-        let mut triangulator =
-            Triangulator::from_coordinates(vec![0.0, 0.0, 10.0, 0.0, 10.0, 10.0, 0.0, 10.0]);
-        /*
-            ( 0.0,  0.0)
-            (10.0,  0.0)
-            (10.0, 10.0)
-            ( 0.0, 10.0)
-        */
-        let hole_path = vec![
-            5.0, 2.0, 6.0, 4.0, 8.0, 5.0, 6.0, 6.0, 5.0, 8.0, 4.0, 6.0, 2.0, 5.0, 4.0, 4.0,
+    fn sample_3() {
+        /* square boundary */
+        let v1 = Rc::new(Vertex::new(1.0, 1.0));
+        let v2 = Rc::new(Vertex::new(8.0, 1.0));
+        let v3 = Rc::new(Vertex::new(8.0, 7.0));
+        let v4 = Rc::new(Vertex::new(1.0, 7.0));
+
+        let boundary: Vec<Rc<Vertex>> = vec![
+            Rc::clone(&v1),
+            Rc::clone(&v2),
+            Rc::clone(&v3),
+            Rc::clone(&v4),
         ];
-        /*
-           (5.0, 2.0)
-           (6.0, 4.0)
-           (8.0, 5.0)
-           (6.0, 6.0)
-           (5.0, 8.0)
-           (4.0, 6.0)
-           (2.0, 5.0)
-           (4.0, 4.0)
-        */
+        let boundary = Rc::new(Polyline::new_closed(boundary).unwrap());
 
-        triangulator.triangulate();
-        triangulator.insert_hole(hole_path);
+        /* concave hole */
+        let v5 = Rc::new(Vertex::new(2.0, 6.0));
+        let v6 = Rc::new(Vertex::new(2.0, 2.0));
+        let v7 = Rc::new(Vertex::new(7.0, 2.0));
+        let v8 = Rc::new(Vertex::new(7.0, 6.0));
+        let v9 = Rc::new(Vertex::new(4.0, 6.0));
+        let v10 = Rc::new(Vertex::new(4.0, 4.0));
+        let v11 = Rc::new(Vertex::new(5.0, 4.0));
+        let v12 = Rc::new(Vertex::new(5.0, 5.0));
+        let v13 = Rc::new(Vertex::new(6.0, 5.0));
+        let v14 = Rc::new(Vertex::new(6.0, 3.0));
+        let v15 = Rc::new(Vertex::new(3.0, 3.0));
+        let v16 = Rc::new(Vertex::new(3.0, 6.0));
 
-        assert_eq!(triangulator.vertices_size(), 12);
-        assert_eq!(triangulator.triangles_size(), 12);
-    }
-}
-
-#[cfg(test)]
-mod export {
-    use super::*;
-
-    #[test]
-    fn test_export_vertices() {
-        let vertex_indices = vec![0.0, 0.0, 2.0, 0.0, 1.0, 2.0, 1.0, 1.0];
-        let mut triangulator = Triangulator::from_coordinates(vertex_indices);
-        triangulator.triangulate();
-        let triangulation = triangulator.export();
-        println!("{}", triangulation);
-        assert!(
-            triangulation
-                .coordinates
-                .chunks(2)
-                .position(|slice| slice == [0.0, 0.0])
-                != None
-        );
-        assert!(
-            triangulation
-                .coordinates
-                .chunks(2)
-                .position(|slice| slice == [2.0, 0.0])
-                != None
-        );
-        assert!(
-            triangulation
-                .coordinates
-                .chunks(2)
-                .position(|slice| slice == [1.0, 2.0])
-                != None
-        );
-        assert!(
-            triangulation
-                .coordinates
-                .chunks(2)
-                .position(|slice| slice == [1.0, 1.0])
-                != None
-        );
-    }
-
-    #[test]
-    fn test_export_triangles() {
-        let vertex_indices = vec![0.0, 0.0, 2.0, 0.0, 1.0, 2.0, 1.0, 1.0];
-        let mut triangulator = Triangulator::from_coordinates(vertex_indices);
-        triangulator.triangulate();
-        let triangulation = triangulator.export();
-        println!("{}", triangulation);
-        assert!(
-            triangulation
-                .triangles
-                .chunks(3)
-                .position(|slice| slice == [0, 3, 1])
-                != None
-        );
-        assert!(
-            triangulation
-                .triangles
-                .chunks(3)
-                .position(|slice| slice == [0, 1, 2])
-                != None
-        );
-        assert!(
-            triangulation
-                .triangles
-                .chunks(3)
-                .position(|slice| slice == [1, 3, 2])
-                != None
-        );
-    }
-}
-
-#[cfg(test)]
-mod triangulation {
-    use super::*;
-
-    #[test]
-    fn test_square_with_center() {
-        let vertex_indices = vec![0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.5, 0.5];
-        /*
-            (0.0, 0.0)
-            (1.0, 0.0)
-            (1.0, 1.0)
-            (0.0, 1.0)
-            (0.5, 0.5)
-        */
-        let mut triangulator = Triangulator::from_coordinates(vertex_indices);
-        triangulator.triangulate();
-        let triangulation = triangulator.export();
-        println!("{}", triangulation);
-        assert!(
-            triangulation
-                .triangles
-                .chunks(3)
-                .position(|slice| slice == [2, 3, 4])
-                != None
-        );
-        assert!(
-            triangulation
-                .triangles
-                .chunks(3)
-                .position(|slice| slice == [1, 2, 4])
-                != None
-        );
-        assert!(
-            triangulation
-                .triangles
-                .chunks(3)
-                .position(|slice| slice == [0, 2, 1])
-                != None
-        );
-        assert!(
-            triangulation
-                .triangles
-                .chunks(3)
-                .position(|slice| slice == [0, 3, 2])
-                != None
-        );
-    }
-
-    #[test]
-    fn test_hexagon() {
-        let vertex_indices = vec![
-            1.0, 0.0, 2.0, 0.0, 3.0, 1.0, 2.0, 2.0, 1.0, 2.0, 0.0, 1.0, 1.2, 1.0, 2.0, 1.0,
+        let hole: Vec<Rc<Vertex>> = vec![
+            Rc::clone(&v5),
+            Rc::clone(&v6),
+            Rc::clone(&v7),
+            Rc::clone(&v8),
+            Rc::clone(&v9),
+            Rc::clone(&v10),
+            Rc::clone(&v11),
+            Rc::clone(&v12),
+            Rc::clone(&v13),
+            Rc::clone(&v14),
+            Rc::clone(&v15),
+            Rc::clone(&v16),
         ];
-        /*
-           (1.0, 0.0)
-           (2.0, 0.0)
-           (3.0, 1.0)
-           (2.0, 2.0)
-           (1.0, 2.0)
-           (0.0, 1.0)
-           (1.2, 1.0)
-           (2.0, 1.0)
-        */
-        let mut triangulator = Triangulator::from_coordinates(vertex_indices);
-        triangulator.triangulate();
-        triangulator.delete_vertex(Rc::new(Vertex::new(2.0, 1.0)));
-        let triangulation = triangulator.export();
-        println!("{}", triangulation);
-        assert!(
-            triangulation
-                .triangles
-                .chunks(3)
-                .position(|slice| slice == [0, 3, 2])
-                != None
-        );
-        assert!(
-            triangulation
-                .triangles
-                .chunks(3)
-                .position(|slice| slice == [1, 4, 3])
-                != None
-        );
-        assert!(
-            triangulation
-                .triangles
-                .chunks(3)
-                .position(|slice| slice == [0, 1, 3])
-                != None
-        );
-        assert!(
-            triangulation
-                .triangles
-                .chunks(3)
-                .position(|slice| slice == [2, 3, 5])
-                != None
-        );
-        assert!(
-            triangulation
-                .triangles
-                .chunks(3)
-                .position(|slice| slice == [3, 4, 6])
-                != None
-        );
-        assert!(
-            triangulation
-                .triangles
-                .chunks(3)
-                .position(|slice| slice == [3, 6, 5])
-                != None
-        );
+        let requested_hole_polyline = Rc::new(Polyline::new_closed(hole).unwrap());
+
+        let mut triangulator = Triangulator::new(&boundary);
+        triangulator.insert_hole(&requested_hole_polyline);
+        triangulator.include_boundary();
+        let hole_edges: HashSet<Rc<Edge>> =
+            triangulator.include_hole(&requested_hole_polyline, &HashSet::new());
+
+        let inserted_hole_polyline = Polyline::arrange(&hole_edges).unwrap();
+
+        let (subtraction_1, _) =
+            Polyline::subtraction(&inserted_hole_polyline, &requested_hole_polyline);
+        let (subtraction_2, _) =
+            Polyline::subtraction(&inserted_hole_polyline, &requested_hole_polyline);
+
+        assert!(subtraction_1.is_empty());
+        assert!(subtraction_2.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod include_vertices {
+    use super::*;
+
+    #[test]
+    fn sample_1() {
+        let v1 = Rc::new(Vertex::new(1.0, 1.0));
+        let v2 = Rc::new(Vertex::new(5.0, 1.0));
+        let v3 = Rc::new(Vertex::new(5.0, 5.0));
+        let v4 = Rc::new(Vertex::new(1.0, 5.0));
+
+        let boundary: Vec<Rc<Vertex>> = vec![
+            Rc::clone(&v1),
+            Rc::clone(&v2),
+            Rc::clone(&v3),
+            Rc::clone(&v4),
+        ];
+        let boundary = Rc::new(Polyline::new_closed(boundary).unwrap());
+
+        let v5 = Rc::new(Vertex::new(3.0, 2.0));
+        let v6 = Rc::new(Vertex::new(4.0, 3.0));
+        let v7 = Rc::new(Vertex::new(3.0, 4.0));
+        let v8 = Rc::new(Vertex::new(2.0, 3.0));
+
+        let vertices: Vec<Rc<Vertex>> = vec![
+            Rc::clone(&v5),
+            Rc::clone(&v6),
+            Rc::clone(&v7),
+            Rc::clone(&v8),
+        ];
+
+        let mut triangulator = Triangulator::new(&boundary);
+        triangulator.insert_vertices(vertices.iter().cloned().collect());
+        triangulator.include_boundary();
+        triangulator.include_vertices(vertices.iter().cloned().collect(), &HashSet::new());
+
+        let vertices: HashSet<Rc<Vertex>> = triangulator.triangulation.borrow().vertices();
+        assert!(vertices.contains(&v5));
+        assert!(vertices.contains(&v6));
+        assert!(vertices.contains(&v7));
+        assert!(vertices.contains(&v8));
+    }
+}
+
+#[cfg(test)]
+mod include_segments {
+    use super::*;
+
+    #[test]
+    fn sample_1() {
+        let v1 = Rc::new(Vertex::new(1.0, 1.0));
+        let v2 = Rc::new(Vertex::new(5.0, 1.0));
+        let v3 = Rc::new(Vertex::new(5.0, 5.0));
+        let v4 = Rc::new(Vertex::new(1.0, 5.0));
+
+        let boundary: Vec<Rc<Vertex>> = vec![
+            Rc::clone(&v1),
+            Rc::clone(&v2),
+            Rc::clone(&v3),
+            Rc::clone(&v4),
+        ];
+        let boundary = Rc::new(Polyline::new_closed(boundary).unwrap());
+
+        let v5 = Rc::new(Vertex::new(3.0, 2.0));
+        let v6 = Rc::new(Vertex::new(4.0, 3.0));
+        let v7 = Rc::new(Vertex::new(3.0, 4.0));
+        let v8 = Rc::new(Vertex::new(2.0, 3.0));
+
+        let e56 = Rc::new(Edge::new(&v5, &v6));
+        let e78 = Rc::new(Edge::new(&v7, &v8));
+
+        let segments: HashSet<Rc<Edge>> = vec![Rc::clone(&e56), Rc::clone(&e78)]
+            .iter()
+            .cloned()
+            .collect();
+
+        let mut triangulator = Triangulator::new(&boundary);
+        triangulator.include_boundary();
+        triangulator.include_segments(segments, &HashSet::new());
+
+        let edges: HashSet<Rc<Edge>> = triangulator.triangulation.borrow().edges();
+        assert!(edges.contains(&e56));
+        assert!(edges.contains(&e78));
+    }
+
+    #[test]
+    fn sample_2() {
+        /* square boundary */
+        let v1 = Rc::new(Vertex::new(1.0, 1.0));
+        let v2 = Rc::new(Vertex::new(8.0, 1.0));
+        let v3 = Rc::new(Vertex::new(8.0, 7.0));
+        let v4 = Rc::new(Vertex::new(1.0, 7.0));
+
+        let boundary: Vec<Rc<Vertex>> = vec![
+            Rc::clone(&v1),
+            Rc::clone(&v2),
+            Rc::clone(&v3),
+            Rc::clone(&v4),
+        ];
+        let boundary = Rc::new(Polyline::new_closed(boundary).unwrap());
+
+        /* concave hole - closed polyline */
+        let v5 = Rc::new(Vertex::new(2.0, 6.0));
+        let v6 = Rc::new(Vertex::new(2.0, 2.0));
+        let v7 = Rc::new(Vertex::new(7.0, 2.0));
+        let v8 = Rc::new(Vertex::new(7.0, 6.0));
+        let v9 = Rc::new(Vertex::new(4.0, 6.0));
+        let v10 = Rc::new(Vertex::new(4.0, 4.0));
+        let v11 = Rc::new(Vertex::new(5.0, 4.0));
+        let v12 = Rc::new(Vertex::new(5.0, 5.0));
+        let v13 = Rc::new(Vertex::new(6.0, 5.0));
+        let v14 = Rc::new(Vertex::new(6.0, 3.0));
+        let v15 = Rc::new(Vertex::new(3.0, 3.0));
+        let v16 = Rc::new(Vertex::new(3.0, 6.0));
+
+        let segments: HashSet<Rc<Edge>> = vec![
+            Rc::new(Edge::new(&v5, &v6)),
+            Rc::new(Edge::new(&v6, &v7)),
+            Rc::new(Edge::new(&v7, &v8)),
+            Rc::new(Edge::new(&v8, &v9)),
+            Rc::new(Edge::new(&v9, &v10)),
+            Rc::new(Edge::new(&v10, &v11)),
+            Rc::new(Edge::new(&v11, &v12)),
+            Rc::new(Edge::new(&v12, &v13)),
+            Rc::new(Edge::new(&v13, &v14)),
+            Rc::new(Edge::new(&v14, &v15)),
+            Rc::new(Edge::new(&v15, &v16)),
+            Rc::new(Edge::new(&v16, &v5)),
+        ]
+        .iter()
+        .cloned()
+        .collect::<HashSet<Rc<Edge>>>();
+
+        let mut triangulator = Triangulator::new(&boundary);
+        triangulator.include_boundary();
+        let inserted_segments =
+            triangulator.include_segments(segments.iter().cloned().collect(), &HashSet::new());
+
+        let inserted_hole_polyline = Polyline::arrange(&inserted_segments)
+            .unwrap()
+            .minified_noncolinear();
+
+        for edge in segments.iter() {
+            assert!(inserted_hole_polyline.into_edges().contains(edge));
+        }
+    }
+}
+
+#[cfg(test)]
+mod insert_holes {
+    use super::*;
+
+    #[test]
+    fn sample_1() {
+        /* Squared boundary */
+        let v1 = Rc::new(Vertex::new(1.0, 1.0));
+        let v2 = Rc::new(Vertex::new(4.0, 1.0));
+        let v3 = Rc::new(Vertex::new(4.0, 4.0));
+        let v4 = Rc::new(Vertex::new(1.0, 4.0));
+
+        let mut boundary: Vec<Rc<Vertex>> = Vec::new();
+        boundary.push(Rc::clone(&v1));
+        boundary.push(Rc::clone(&v2));
+        boundary.push(Rc::clone(&v3));
+        boundary.push(Rc::clone(&v4));
+        let boundary = Rc::new(Polyline::new_closed(boundary).unwrap());
+
+        /* Inner Vertices */
+        let v11 = Rc::new(Vertex::new(2.0, 2.0));
+        let v12 = Rc::new(Vertex::new(3.0, 2.0));
+        let v13 = Rc::new(Vertex::new(3.0, 3.0));
+        let v14 = Rc::new(Vertex::new(2.0, 3.0));
+
+        let mut hole_vertices: Vec<Rc<Vertex>> = Vec::new();
+        hole_vertices.push(Rc::clone(&v11));
+        hole_vertices.push(Rc::clone(&v12));
+        hole_vertices.push(Rc::clone(&v13));
+        hole_vertices.push(Rc::clone(&v14));
+        let hole = Rc::new(Polyline::new_closed(hole_vertices).unwrap());
+
+        let mut triangulator = Triangulator::new(&boundary);
+        let result = triangulator.insert_hole(&hole);
+        assert!(result.is_ok());
+
+        assert!(triangulator.holes.contains(&hole));
+    }
+
+    #[test]
+    fn error_insert_if_intersection_with_boundary() {
+        /* Squared boundary */
+        let v1 = Rc::new(Vertex::new(1.0, 1.0));
+        let v2 = Rc::new(Vertex::new(4.0, 1.0));
+        let v3 = Rc::new(Vertex::new(4.0, 4.0));
+        let v4 = Rc::new(Vertex::new(1.0, 4.0));
+
+        let mut boundary: Vec<Rc<Vertex>> = Vec::new();
+        boundary.push(Rc::clone(&v1));
+        boundary.push(Rc::clone(&v2));
+        boundary.push(Rc::clone(&v3));
+        boundary.push(Rc::clone(&v4));
+        let boundary = Rc::new(Polyline::new_closed(boundary).unwrap());
+
+        /* Inner Vertices */
+        let v11 = Rc::new(Vertex::new(2.0, 2.0));
+        let v12 = Rc::new(Vertex::new(3.0, 2.0));
+        let v13 = Rc::new(Vertex::new(6.0, 6.0));
+        let v14 = Rc::new(Vertex::new(2.0, 3.0));
+
+        let mut hole_vertices: Vec<Rc<Vertex>> = Vec::new();
+        hole_vertices.push(Rc::clone(&v11));
+        hole_vertices.push(Rc::clone(&v12));
+        hole_vertices.push(Rc::clone(&v13));
+        hole_vertices.push(Rc::clone(&v14));
+        let hole = Rc::new(Polyline::new_closed(hole_vertices).unwrap());
+
+        let mut triangulator = Triangulator::new(&boundary);
+        let result = triangulator.insert_hole(&hole);
+
+        assert!(result.is_err());
+        if let Err(vertices) = result {
+            assert_eq!(vertices.len(), 2);
+        }
+        assert!(triangulator.holes.is_empty());
+    }
+
+    #[test]
+    fn error_insert_if_intersection_at_boundary() {
+        /* Squared boundary */
+        let v1 = Rc::new(Vertex::new(1.0, 1.0));
+        let v2 = Rc::new(Vertex::new(4.0, 1.0));
+        let v3 = Rc::new(Vertex::new(4.0, 4.0));
+        let v4 = Rc::new(Vertex::new(1.0, 4.0));
+
+        let mut boundary: Vec<Rc<Vertex>> = Vec::new();
+        boundary.push(Rc::clone(&v1));
+        boundary.push(Rc::clone(&v2));
+        boundary.push(Rc::clone(&v3));
+        boundary.push(Rc::clone(&v4));
+        let boundary = Rc::new(Polyline::new_closed(boundary).unwrap());
+
+        /* Hole Vertices */
+        let v11 = Rc::new(Vertex::new(2.0, 2.0));
+        let v12 = Rc::new(Vertex::new(3.0, 2.0));
+        let v13 = Rc::new(Vertex::new(3.0, 3.0));
+        let v14 = Rc::new(Vertex::new(2.0, 4.0));
+
+        let mut hole_vertices: Vec<Rc<Vertex>> = Vec::new();
+        hole_vertices.push(Rc::clone(&v11));
+        hole_vertices.push(Rc::clone(&v12));
+        hole_vertices.push(Rc::clone(&v13));
+        hole_vertices.push(Rc::clone(&v14));
+        let hole = Rc::new(Polyline::new_closed(hole_vertices).unwrap());
+
+        let mut triangulator = Triangulator::new(&boundary);
+        let result = triangulator.insert_hole(&hole);
+
+        assert!(result.is_err());
+        if let Err(vertices) = result {
+            assert_eq!(vertices.len(), 1);
+            assert!(vertices.contains(&v14));
+        }
+        assert!(triangulator.holes.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod insert_vertices {
+    use super::*;
+
+    #[test]
+    fn sample_1() {
+        /* Squared boundary */
+        let v1 = Rc::new(Vertex::new(1.0, 1.0));
+        let v2 = Rc::new(Vertex::new(5.0, 1.0));
+        let v3 = Rc::new(Vertex::new(5.0, 5.0));
+        let v4 = Rc::new(Vertex::new(1.0, 5.0));
+
+        let mut boundary: Vec<Rc<Vertex>> = Vec::new();
+        boundary.push(Rc::clone(&v1));
+        boundary.push(Rc::clone(&v2));
+        boundary.push(Rc::clone(&v3));
+        boundary.push(Rc::clone(&v4));
+        let boundary = Rc::new(Polyline::new_closed(boundary).unwrap());
+
+        /* Inner Vertices */
+        let v14 = Rc::new(Vertex::new(2.0, 3.0));
+        let v15 = Rc::new(Vertex::new(1.0000001, 1.0000001));
+        let v16 = Rc::new(Vertex::new(4.9999999, 4.9999999));
+
+        let mut inner_vertices: HashSet<Rc<Vertex>> = HashSet::new();
+        inner_vertices.insert(Rc::clone(&v14));
+        inner_vertices.insert(Rc::clone(&v15));
+        inner_vertices.insert(Rc::clone(&v16));
+
+        let mut triangulator = Triangulator::new(&boundary);
+        let result = triangulator.insert_vertices(inner_vertices);
+        assert!(result.is_ok());
+
+        assert!(triangulator.vertices.contains(&v14));
+        assert!(triangulator.vertices.contains(&v15));
+        assert!(triangulator.vertices.contains(&v16));
+    }
+
+    #[test]
+    fn error_if_any_out_of_boundary() {
+        /* Squared boundary */
+        let v1 = Rc::new(Vertex::new(1.0, 1.0));
+        let v2 = Rc::new(Vertex::new(5.0, 1.0));
+        let v3 = Rc::new(Vertex::new(5.0, 5.0));
+        let v4 = Rc::new(Vertex::new(1.0, 5.0));
+
+        let mut boundary: Vec<Rc<Vertex>> = Vec::new();
+        boundary.push(Rc::clone(&v1));
+        boundary.push(Rc::clone(&v2));
+        boundary.push(Rc::clone(&v3));
+        boundary.push(Rc::clone(&v4));
+        let boundary = Rc::new(Polyline::new_closed(boundary).unwrap());
+
+        /* Outer Vertices */
+        let v10 = Rc::new(Vertex::new(0.0, 0.0));
+        let v11 = Rc::new(Vertex::new(0.9999999, 0.9999999));
+        let v12 = Rc::new(Vertex::new(5.0000001, 5.0000001));
+        let v13 = Rc::new(Vertex::new(3.0, 1.0)); /* at the boundary */
+
+        /* Inner Vertices */
+        let v14 = Rc::new(Vertex::new(2.0, 3.0));
+        let v15 = Rc::new(Vertex::new(1.0000001, 1.0000001));
+        let v16 = Rc::new(Vertex::new(4.9999999, 4.9999999));
+
+        let mut inner_vertices: HashSet<Rc<Vertex>> = HashSet::new();
+        inner_vertices.insert(Rc::clone(&v10));
+        inner_vertices.insert(Rc::clone(&v11));
+        inner_vertices.insert(Rc::clone(&v12));
+        inner_vertices.insert(Rc::clone(&v13));
+        inner_vertices.insert(Rc::clone(&v14));
+        inner_vertices.insert(Rc::clone(&v15));
+        inner_vertices.insert(Rc::clone(&v16));
+
+        let mut triangulator = Triangulator::new(&boundary);
+        let result = triangulator.insert_vertices(inner_vertices);
+        assert!(result.is_err());
+
+        if let Err(panic_vertices) = result {
+            assert!(panic_vertices.contains(&v10));
+            assert!(panic_vertices.contains(&v11));
+            assert!(panic_vertices.contains(&v12));
+            assert!(panic_vertices.contains(&v13));
+        }
+    }
+
+    #[test]
+    fn error_if_any_inside_hole() {
+        /* Squared boundary */
+        let v1 = Rc::new(Vertex::new(1.0, 1.0));
+        let v2 = Rc::new(Vertex::new(4.0, 1.0));
+        let v3 = Rc::new(Vertex::new(4.0, 4.0));
+        let v4 = Rc::new(Vertex::new(1.0, 4.0));
+
+        let mut boundary: Vec<Rc<Vertex>> = Vec::new();
+        boundary.push(Rc::clone(&v1));
+        boundary.push(Rc::clone(&v2));
+        boundary.push(Rc::clone(&v3));
+        boundary.push(Rc::clone(&v4));
+        let boundary = Rc::new(Polyline::new_closed(boundary).unwrap());
+
+        /* Hole Vertices */
+        let v11 = Rc::new(Vertex::new(2.0, 2.0));
+        let v12 = Rc::new(Vertex::new(3.0, 2.0));
+        let v13 = Rc::new(Vertex::new(3.0, 3.0));
+        let v14 = Rc::new(Vertex::new(2.0, 3.0));
+
+        let mut hole_vertices: Vec<Rc<Vertex>> = Vec::new();
+        hole_vertices.push(Rc::clone(&v11));
+        hole_vertices.push(Rc::clone(&v12));
+        hole_vertices.push(Rc::clone(&v13));
+        hole_vertices.push(Rc::clone(&v14));
+        let hole = Rc::new(Polyline::new_closed(hole_vertices).unwrap());
+
+        /* Ok Vertices */
+        let v21 = Rc::new(Vertex::new(1.4, 1.4));
+        let v22 = Rc::new(Vertex::new(3.5, 3.5));
+
+        /* Err Vertices */
+        let v23 = Rc::new(Vertex::new(2.2, 2.2));
+        let v24 = Rc::new(Vertex::new(2.0, 2.5));
+
+        let mut inner_vertices: HashSet<Rc<Vertex>> = HashSet::new();
+        inner_vertices.insert(Rc::clone(&v21));
+        inner_vertices.insert(Rc::clone(&v22));
+        inner_vertices.insert(Rc::clone(&v23));
+        inner_vertices.insert(Rc::clone(&v24));
+
+        let mut triangulator = Triangulator::new(&boundary);
+        triangulator.insert_hole(&hole);
+        let result = triangulator.insert_vertices(inner_vertices);
+        assert!(result.is_err());
+
+        if let Err(panic_vertices) = result {
+            assert!(panic_vertices.contains(&v23));
+            assert!(panic_vertices.contains(&v24));
+        }
+    }
+}
+
+#[cfg(test)]
+mod insert_segments {
+    use super::*;
+
+    #[test]
+    fn sample_1() {
+        /* Squared boundary */
+        let v1 = Rc::new(Vertex::new(1.0, 1.0));
+        let v2 = Rc::new(Vertex::new(4.0, 1.0));
+        let v3 = Rc::new(Vertex::new(4.0, 4.0));
+        let v4 = Rc::new(Vertex::new(1.0, 4.0));
+
+        let mut boundary: Vec<Rc<Vertex>> = Vec::new();
+        boundary.push(Rc::clone(&v1));
+        boundary.push(Rc::clone(&v2));
+        boundary.push(Rc::clone(&v3));
+        boundary.push(Rc::clone(&v4));
+        let boundary = Rc::new(Polyline::new_closed(boundary).unwrap());
+
+        /* Segments Vertices */
+        let v11 = Rc::new(Vertex::new(2.0, 2.0));
+        let v12 = Rc::new(Vertex::new(3.0, 2.0));
+        let v13 = Rc::new(Vertex::new(3.0, 3.0));
+        let v14 = Rc::new(Vertex::new(2.0, 3.0));
+        let e1 = Rc::new(Edge::new(&v11, &v12));
+        let e2 = Rc::new(Edge::new(&v13, &v14));
+
+        let mut segments: HashSet<Rc<Edge>> = HashSet::new();
+        segments.insert(Rc::clone(&e1));
+        segments.insert(Rc::clone(&e2));
+
+        let mut triangulator = Triangulator::new(&boundary);
+        let result = triangulator.insert_segments(segments);
+        if let Err(panic_edges) = &result {
+            for edge in panic_edges.iter() {
+                println!("{}", edge);
+            }
+        }
+        assert!(result.is_ok());
+
+        assert!(triangulator.segments.contains(&e1));
+        assert!(triangulator.segments.contains(&e2));
+    }
+
+    #[test]
+    fn error_if_any_out_of_boundary() {
+        /* Squared boundary */
+        let v1 = Rc::new(Vertex::new(1.0, 1.0));
+        let v2 = Rc::new(Vertex::new(4.0, 1.0));
+        let v3 = Rc::new(Vertex::new(4.0, 4.0));
+        let v4 = Rc::new(Vertex::new(1.0, 4.0));
+
+        let mut boundary: Vec<Rc<Vertex>> = Vec::new();
+        boundary.push(Rc::clone(&v1));
+        boundary.push(Rc::clone(&v2));
+        boundary.push(Rc::clone(&v3));
+        boundary.push(Rc::clone(&v4));
+        let boundary = Rc::new(Polyline::new_closed(boundary).unwrap());
+
+        /* Segments Vertices */
+        let v11 = Rc::new(Vertex::new(2.0, 2.0));
+        let v12 = Rc::new(Vertex::new(3.0, 2.0));
+        let v13 = Rc::new(Vertex::new(3.0, 3.0));
+        let v14 = Rc::new(Vertex::new(2.0, 5.0));
+        let e1 = Rc::new(Edge::new(&v11, &v12));
+        let e2 = Rc::new(Edge::new(&v13, &v14));
+
+        let mut segments: HashSet<Rc<Edge>> = HashSet::new();
+        segments.insert(Rc::clone(&e1));
+        segments.insert(Rc::clone(&e2));
+
+        let mut triangulator = Triangulator::new(&boundary);
+        let result = triangulator.insert_segments(segments);
+        assert!(result.is_err());
+
+        if let Err(panic_segments) = result {
+            assert_eq!(panic_segments.len(), 1);
+            assert!(panic_segments.contains(&e2));
+        }
+    }
+
+    #[test]
+    fn removes_vertices_on_continence () {
+        /* Squared boundary */
+        let v1 = Rc::new(Vertex::new(1.0, 1.0));
+        let v2 = Rc::new(Vertex::new(4.0, 1.0));
+        let v3 = Rc::new(Vertex::new(4.0, 4.0));
+        let v4 = Rc::new(Vertex::new(1.0, 4.0));
+
+        let mut boundary: Vec<Rc<Vertex>> = Vec::new();
+        boundary.push(Rc::clone(&v1));
+        boundary.push(Rc::clone(&v2));
+        boundary.push(Rc::clone(&v3));
+        boundary.push(Rc::clone(&v4));
+        let boundary = Rc::new(Polyline::new_closed(boundary).unwrap());
+
+        /* Segments Vertices */
+        let v11 = Rc::new(Vertex::new(2.0, 2.0));
+        let v12 = Rc::new(Vertex::new(3.0, 2.0));
+        let v13 = Rc::new(Vertex::new(3.0, 3.0));
+        let v14 = Rc::new(Vertex::new(2.0, 3.0));
+        let e1 = Rc::new(Edge::new(&v11, &v12));
+        let e2 = Rc::new(Edge::new(&v13, &v14));
+
+        let mut segments: HashSet<Rc<Edge>> = HashSet::new();
+        segments.insert(Rc::clone(&e1));
+        segments.insert(Rc::clone(&e2));
+
+        /* Err Vertices */
+        let v21 = Rc::new(Vertex::new(2.5, 3.0));
+        let v22 = Rc::new(Vertex::new(2.0, 2.2));
+
+        let mut vertices: HashSet<Rc<Vertex>> = HashSet::new();
+        vertices.insert(Rc::clone(&v21));
+        vertices.insert(Rc::clone(&v22));
+
+        let mut triangulator = Triangulator::new(&boundary);
+        triangulator.insert_vertices(vertices);
+        let result = triangulator.insert_segments(segments);
+        assert!(result.is_ok());
+
+        assert!(!triangulator.vertices.contains(&v21));
+        assert!(triangulator.vertices.contains(&v22));
     }
 }

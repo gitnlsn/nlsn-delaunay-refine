@@ -1,5 +1,4 @@
-use crate::elements::bounding_box::*;
-use crate::elements::vertex::*;
+use crate::elements::{bounding_box::*, edge::*, vertex::*};
 
 use crate::properties::angle::*;
 use crate::properties::area::area_segments;
@@ -10,7 +9,7 @@ use crate::properties::midpoint::*;
 use crate::properties::orientation::*;
 use crate::properties::parallel::*;
 
-use std::collections::hash_set::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::rc::Rc;
 
@@ -82,6 +81,67 @@ impl Polyline {
 
     pub fn bounding_box(&self) -> Option<BoundingBox> {
         BoundingBox::from_vertices(self.vertices.iter().cloned().collect())
+    }
+
+    pub fn arrange(edges: &HashSet<Rc<Edge>>) -> Option<Self> {
+        let mut arranged_vertices: Vec<Rc<Vertex>> = Vec::new();
+
+        let mut hash_edges: HashMap<Rc<Vertex>, Rc<Vertex>> = HashMap::new();
+        for edge in edges.iter() {
+            hash_edges.insert(Rc::clone(&edge.v1), Rc::clone(&edge.v2));
+        }
+
+        let head: Rc<Vertex> = Rc::clone(hash_edges.keys().next().unwrap());
+        let mut tail: Rc<Vertex> = Rc::clone(&head);
+        arranged_vertices.push(Rc::clone(&head));
+
+        loop {
+            if let Some(next) = hash_edges.get(&tail) {
+                if next == &head {
+                    break;
+                }
+                arranged_vertices.push(Rc::clone(next));
+                tail = Rc::clone(next);
+                continue;
+            }
+            break;
+        }
+
+        if arranged_vertices.len() == edges.len() {
+            return Some(Polyline::new_closed(arranged_vertices).unwrap());
+        }
+
+        return None;
+    }
+
+    pub fn minified_noncolinear(&self) -> Self {
+        let mut minified: Vec<Rc<Vertex>> = Vec::new();
+        let mut possible_vertices: Vec<Rc<Vertex>> = self.vertices.iter().cloned().collect();
+
+        let head = Rc::clone(self.vertices.first().unwrap());
+        let tail = Rc::clone(self.vertices.last().unwrap());
+
+        if !self.opened {
+            possible_vertices.insert(0, Rc::clone(&tail));
+            possible_vertices.push(Rc::clone(&head));
+        }
+
+        for index in 1..(possible_vertices.len() - 1) {
+            let v1: &Rc<Vertex> = possible_vertices.get(index - 1).unwrap();
+            let v2: &Rc<Vertex> = possible_vertices.get(index).unwrap();
+            let v3: &Rc<Vertex> = possible_vertices.get(index + 1).unwrap();
+
+            if orientation(v1, v2, v3) != Orientation::Colinear {
+                minified.push(Rc::clone(&v2));
+            }
+        }
+
+        if self.opened {
+            minified.insert(0, Rc::clone(&head));
+            minified.push(Rc::clone(&tail));
+        }
+
+        return Polyline::new_closed(minified).unwrap();
     }
 
     pub fn contains(&self, vertex: &Vertex) -> Option<Continence> {
@@ -540,12 +600,6 @@ impl Polyline {
         possible_segments = read_segments.iter().cloned().collect();
         read_segments = Vec::new();
 
-        println!("\nPossible Segments");
-        for (v1, v2) in possible_segments.iter() {
-            println!("{} {}", v1, v2);
-        }
-
-        println!("\nFiltering Segments");
         /* Filters by continence */
         while !possible_segments.is_empty() {
             let (v1, v2) = possible_segments.pop().unwrap();
@@ -553,11 +607,6 @@ impl Polyline {
 
             let inside_p1 = p1.contains(&midpoint).unwrap() != Continence::Outside;
             let not_inside_p2 = p2.contains(&midpoint).unwrap() != Continence::Inside;
-
-            println!(
-                "{} {}: {} {} {}",
-                v1, v2, midpoint, inside_p1, not_inside_p2
-            );
 
             if inside_p1 && not_inside_p2 {
                 read_segments.push((v1, v2));
@@ -567,11 +616,6 @@ impl Polyline {
         }
         let mut possible_segments: HashSet<(Rc<Vertex>, Rc<Vertex>)> =
             read_segments.into_iter().collect();
-
-        println!("\nFiltered Segments");
-        for (v1, v2) in possible_segments.iter() {
-            println!("{} {}", v1, v2);
-        }
 
         /* Builds polylines */
         while !possible_segments.is_empty() {
@@ -598,21 +642,6 @@ impl Polyline {
                     })
                     .cloned()
                     .collect();
-
-                println!("\nPossible Segments");
-                for (v1, v2) in possible_segments.iter() {
-                    println!("{} {}", v1, v2);
-                }
-
-                println!("\nPossible Subtraction");
-                for (v1, v2) in possible_polyline_subtraction.iter() {
-                    println!("{} {}", v1, v2);
-                }
-
-                println!("\nPossible Next Segments");
-                for (v1, v2) in possible_next_segments.iter() {
-                    println!("{} {}", v1, v2);
-                }
 
                 if possible_next_segments.is_empty() {
                     /* Check polyline closure */
@@ -701,7 +730,14 @@ impl Polyline {
         } /* end - p1 p2 insersection */
 
         return intersection_set;
-    } /* end - intersection */
+    } /* end - intersection vertices */
+
+    pub fn into_edges(&self) -> Vec<Rc<Edge>> {
+        vertex_pairs(&self.vertices, self.opened)
+            .iter()
+            .map(|(v1, v2)| Rc::new(Edge::new(v1, v2)))
+            .collect::<Vec<Rc<Edge>>>()
+    }
 } /* end - impl */
 
 pub fn vertex_pairs(vertex_list: &Vec<Rc<Vertex>>, opened: bool) -> Vec<(Rc<Vertex>, Rc<Vertex>)> {
@@ -724,7 +760,9 @@ pub fn vertex_pairs(vertex_list: &Vec<Rc<Vertex>>, opened: bool) -> Vec<(Rc<Vert
     return pair_list;
 }
 
-fn split_intersections(segments: &Vec<(Rc<Vertex>, Rc<Vertex>)>) -> Vec<(Rc<Vertex>, Rc<Vertex>)> {
+pub fn split_intersections(
+    segments: &Vec<(Rc<Vertex>, Rc<Vertex>)>,
+) -> Vec<(Rc<Vertex>, Rc<Vertex>)> {
     let mut splited_segments: Vec<(Rc<Vertex>, Rc<Vertex>)> = Vec::new();
     let mut aux_set: Vec<(Rc<Vertex>, Rc<Vertex>)> = segments.iter().cloned().collect();
 
@@ -1667,5 +1705,327 @@ mod split_by_intersections {
         let segments: Vec<(Rc<Vertex>, Rc<Vertex>)> = t1.iter().chain(t2.iter()).cloned().collect();
         let splited_segments = split_intersections(&segments);
         assert_eq!(splited_segments.len(), 18);
+    }
+}
+
+#[cfg(test)]
+mod arrange {
+    use super::*;
+
+    #[test]
+    fn sample_1() {
+        let v1 = Rc::new(Vertex::new(4.0, 1.0));
+        let v2 = Rc::new(Vertex::new(5.0, 1.0));
+        let v3 = Rc::new(Vertex::new(6.0, 2.0));
+        let v4 = Rc::new(Vertex::new(4.0, 4.0));
+        let v5 = Rc::new(Vertex::new(3.0, 4.0));
+        let v6 = Rc::new(Vertex::new(1.0, 2.0));
+        let v7 = Rc::new(Vertex::new(2.0, 1.0));
+        let v8 = Rc::new(Vertex::new(3.0, 1.0));
+        let v9 = Rc::new(Vertex::new(2.0, 2.0));
+        let v10 = Rc::new(Vertex::new(3.0, 3.0));
+        let v11 = Rc::new(Vertex::new(4.0, 3.0));
+        let v12 = Rc::new(Vertex::new(5.0, 2.0));
+
+        let p1 = Polyline::new_closed(vec![
+            Rc::clone(&v1),
+            Rc::clone(&v2),
+            Rc::clone(&v3),
+            Rc::clone(&v4),
+            Rc::clone(&v5),
+            Rc::clone(&v6),
+            Rc::clone(&v7),
+            Rc::clone(&v8),
+            Rc::clone(&v9),
+            Rc::clone(&v10),
+            Rc::clone(&v11),
+            Rc::clone(&v12),
+        ])
+        .unwrap();
+
+        let edges: HashSet<Rc<Edge>> = p1.into_edges().iter().cloned().collect();
+        let arranged_p1 = Polyline::arrange(&edges).unwrap();
+
+        assert_eq!(
+            (12 + p1.vertices.iter().position(|v| v == &v2).unwrap()
+                - p1.vertices.iter().position(|v| v == &v1).unwrap())
+                % 12,
+            1
+        );
+        assert_eq!(
+            (12 + p1.vertices.iter().position(|v| v == &v3).unwrap()
+                - p1.vertices.iter().position(|v| v == &v2).unwrap())
+                % 12,
+            1
+        );
+        assert_eq!(
+            (12 + p1.vertices.iter().position(|v| v == &v4).unwrap()
+                - p1.vertices.iter().position(|v| v == &v3).unwrap())
+                % 12,
+            1
+        );
+        assert_eq!(
+            (12 + p1.vertices.iter().position(|v| v == &v5).unwrap()
+                - p1.vertices.iter().position(|v| v == &v4).unwrap())
+                % 12,
+            1
+        );
+        assert_eq!(
+            (12 + p1.vertices.iter().position(|v| v == &v6).unwrap()
+                - p1.vertices.iter().position(|v| v == &v5).unwrap())
+                % 12,
+            1
+        );
+        assert_eq!(
+            (12 + p1.vertices.iter().position(|v| v == &v7).unwrap()
+                - p1.vertices.iter().position(|v| v == &v6).unwrap())
+                % 12,
+            1
+        );
+        assert_eq!(
+            (12 + p1.vertices.iter().position(|v| v == &v8).unwrap()
+                - p1.vertices.iter().position(|v| v == &v7).unwrap())
+                % 12,
+            1
+        );
+        assert_eq!(
+            (12 + p1.vertices.iter().position(|v| v == &v9).unwrap()
+                - p1.vertices.iter().position(|v| v == &v8).unwrap())
+                % 12,
+            1
+        );
+        assert_eq!(
+            (12 + p1.vertices.iter().position(|v| v == &v10).unwrap()
+                - p1.vertices.iter().position(|v| v == &v9).unwrap())
+                % 12,
+            1
+        );
+        assert_eq!(
+            (12 + p1.vertices.iter().position(|v| v == &v11).unwrap()
+                - p1.vertices.iter().position(|v| v == &v10).unwrap())
+                % 12,
+            1
+        );
+        assert_eq!(
+            (12 + p1.vertices.iter().position(|v| v == &v12).unwrap()
+                - p1.vertices.iter().position(|v| v == &v11).unwrap())
+                % 12,
+            1
+        );
+        assert_eq!(
+            (12 + p1.vertices.iter().position(|v| v == &v1).unwrap()
+                - p1.vertices.iter().position(|v| v == &v12).unwrap())
+                % 12,
+            1
+        );
+    }
+
+    #[test]
+    fn sample_2() {
+        let v1 = Rc::new(Vertex::new(1.0, 2.0));
+        let v2 = Rc::new(Vertex::new(4.0, 2.0));
+        let v3 = Rc::new(Vertex::new(4.0, 3.0));
+        let v4 = Rc::new(Vertex::new(2.0, 3.0));
+        let v5 = Rc::new(Vertex::new(2.0, 4.0));
+        let v6 = Rc::new(Vertex::new(4.0, 4.0));
+        let v7 = Rc::new(Vertex::new(4.0, 5.0));
+        let v8 = Rc::new(Vertex::new(1.0, 5.0));
+
+        let p1 = Polyline::new_closed(vec![
+            Rc::clone(&v1),
+            Rc::clone(&v2),
+            Rc::clone(&v3),
+            Rc::clone(&v4),
+            Rc::clone(&v5),
+            Rc::clone(&v6),
+            Rc::clone(&v7),
+            Rc::clone(&v8),
+        ])
+        .unwrap();
+
+        let edges: HashSet<Rc<Edge>> = p1.into_edges().iter().cloned().collect();
+        let arranged_p1 = Polyline::arrange(&edges).unwrap();
+
+        assert_eq!(
+            (8 + p1.vertices.iter().position(|v| v == &v2).unwrap()
+                - p1.vertices.iter().position(|v| v == &v1).unwrap())
+                % 8,
+            1
+        );
+        assert_eq!(
+            (8 + p1.vertices.iter().position(|v| v == &v3).unwrap()
+                - p1.vertices.iter().position(|v| v == &v2).unwrap())
+                % 8,
+            1
+        );
+        assert_eq!(
+            (8 + p1.vertices.iter().position(|v| v == &v4).unwrap()
+                - p1.vertices.iter().position(|v| v == &v3).unwrap())
+                % 8,
+            1
+        );
+        assert_eq!(
+            (8 + p1.vertices.iter().position(|v| v == &v5).unwrap()
+                - p1.vertices.iter().position(|v| v == &v4).unwrap())
+                % 8,
+            1
+        );
+        assert_eq!(
+            (8 + p1.vertices.iter().position(|v| v == &v6).unwrap()
+                - p1.vertices.iter().position(|v| v == &v5).unwrap())
+                % 8,
+            1
+        );
+        assert_eq!(
+            (8 + p1.vertices.iter().position(|v| v == &v7).unwrap()
+                - p1.vertices.iter().position(|v| v == &v6).unwrap())
+                % 8,
+            1
+        );
+        assert_eq!(
+            (8 + p1.vertices.iter().position(|v| v == &v8).unwrap()
+                - p1.vertices.iter().position(|v| v == &v7).unwrap())
+                % 8,
+            1
+        );
+        assert_eq!(
+            (8 + p1.vertices.iter().position(|v| v == &v1).unwrap()
+                - p1.vertices.iter().position(|v| v == &v8).unwrap())
+                % 8,
+            1
+        );
+    }
+}
+
+#[cfg(test)]
+mod minified_noncolinear {
+    use super::*;
+
+    #[test]
+    fn sample_1() {
+        let v1 = Rc::new(Vertex::new(1.0, 1.0));
+        let v2 = Rc::new(Vertex::new(2.0, 1.0));
+        let v3 = Rc::new(Vertex::new(3.0, 1.0));
+        let v4 = Rc::new(Vertex::new(3.0, 2.0));
+
+        let p1 = Polyline::new_closed(vec![
+            Rc::clone(&v1),
+            Rc::clone(&v2),
+            Rc::clone(&v3),
+            Rc::clone(&v4),
+        ])
+        .unwrap();
+
+        let minified = p1.minified_noncolinear();
+
+        assert!(minified.vertices.contains(&v1));
+        assert!(minified.vertices.contains(&v3));
+        assert!(minified.vertices.contains(&v4));
+        assert!(!minified.vertices.contains(&v2));
+    }
+
+    #[test]
+    fn sample_2() {
+        let v1 = Rc::new(Vertex::new(1.0, 2.0));
+        let v2 = Rc::new(Vertex::new(1.0, 1.0));
+        let v3 = Rc::new(Vertex::new(2.0, 1.0));
+        let v4 = Rc::new(Vertex::new(3.0, 1.0));
+        let v5 = Rc::new(Vertex::new(4.0, 1.0));
+        let v6 = Rc::new(Vertex::new(5.0, 1.0));
+        let v7 = Rc::new(Vertex::new(6.0, 1.0));
+        let v8 = Rc::new(Vertex::new(7.0, 1.0));
+
+        let p1 = Polyline::new_closed(vec![
+            Rc::clone(&v1),
+            Rc::clone(&v2),
+            Rc::clone(&v3),
+            Rc::clone(&v4),
+            Rc::clone(&v5),
+            Rc::clone(&v6),
+            Rc::clone(&v7),
+            Rc::clone(&v8),
+        ])
+        .unwrap();
+
+        let minified = p1.minified_noncolinear();
+
+        assert!(minified.vertices.contains(&v1));
+        assert!(minified.vertices.contains(&v2));
+        assert!(!minified.vertices.contains(&v3));
+        assert!(!minified.vertices.contains(&v4));
+        assert!(!minified.vertices.contains(&v5));
+        assert!(!minified.vertices.contains(&v6));
+        assert!(!minified.vertices.contains(&v7));
+        assert!(minified.vertices.contains(&v8));
+    }
+
+    #[test]
+    fn sample_3() {
+        let v1 = Rc::new(Vertex::new(5.0, 1.0));
+        let v2 = Rc::new(Vertex::new(6.0, 1.0));
+        let v3 = Rc::new(Vertex::new(7.0, 1.0));
+        let v4 = Rc::new(Vertex::new(1.0, 2.0));
+        let v5 = Rc::new(Vertex::new(1.0, 1.0));
+        let v6 = Rc::new(Vertex::new(2.0, 1.0));
+        let v7 = Rc::new(Vertex::new(3.0, 1.0));
+        let v8 = Rc::new(Vertex::new(4.0, 1.0));
+
+        let p1 = Polyline::new_closed(vec![
+            Rc::clone(&v1),
+            Rc::clone(&v2),
+            Rc::clone(&v3),
+            Rc::clone(&v4),
+            Rc::clone(&v5),
+            Rc::clone(&v6),
+            Rc::clone(&v7),
+            Rc::clone(&v8),
+        ])
+        .unwrap();
+
+        let minified = p1.minified_noncolinear();
+
+        assert!(!minified.vertices.contains(&v1));
+        assert!(!minified.vertices.contains(&v2));
+        assert!(minified.vertices.contains(&v3));
+        assert!(minified.vertices.contains(&v4));
+        assert!(minified.vertices.contains(&v5));
+        assert!(!minified.vertices.contains(&v6));
+        assert!(!minified.vertices.contains(&v7));
+        assert!(!minified.vertices.contains(&v8));
+    }
+
+    #[test]
+    fn sample_4() {
+        let v1 = Rc::new(Vertex::new(5.0, 1.0));
+        let v2 = Rc::new(Vertex::new(6.0, 1.0));
+        let v3 = Rc::new(Vertex::new(7.0, 1.0));
+        let v4 = Rc::new(Vertex::new(1.0, 2.0));
+        let v5 = Rc::new(Vertex::new(1.0, 1.0));
+        let v6 = Rc::new(Vertex::new(2.0, 1.0));
+        let v7 = Rc::new(Vertex::new(3.0, 1.0));
+        let v8 = Rc::new(Vertex::new(4.0, 1.0));
+
+        let p1 = Polyline::new_opened(vec![
+            Rc::clone(&v1),
+            Rc::clone(&v2),
+            Rc::clone(&v3),
+            Rc::clone(&v4),
+            Rc::clone(&v5),
+            Rc::clone(&v6),
+            Rc::clone(&v7),
+            Rc::clone(&v8),
+        ])
+        .unwrap();
+
+        let minified = p1.minified_noncolinear();
+
+        assert!(minified.vertices.contains(&v1));
+        assert!(!minified.vertices.contains(&v2));
+        assert!(minified.vertices.contains(&v3));
+        assert!(minified.vertices.contains(&v4));
+        assert!(minified.vertices.contains(&v5));
+        assert!(!minified.vertices.contains(&v6));
+        assert!(!minified.vertices.contains(&v7));
+        assert!(minified.vertices.contains(&v8));
     }
 }

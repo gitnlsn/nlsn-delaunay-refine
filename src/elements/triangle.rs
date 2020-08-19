@@ -132,6 +132,19 @@ impl Triangle {
             return Vertex::new(center_x, center_y);
         }
     }
+
+    pub fn opposite_vertex(&self, edge: &Rc<Edge>) -> Option<Rc<Vertex>> {
+        let (e1, e2, e3) = self.inner_edges();
+        if edge == &e1 {
+            return Some(Rc::clone(&self.v3));
+        } else if edge == &e2 {
+            return Some(Rc::clone(&self.v1));
+        } else if edge == &e3 {
+            return Some(Rc::clone(&self.v2));
+        } else {
+            return None;
+        }
+    }
 }
 
 #[cfg(test)]

@@ -30,6 +30,8 @@ mod properties {
 mod planar {
     pub mod triangulation;
     pub mod triangulator;
+    pub mod triangulation_data;
+    pub mod refine_params;
 }
 
 // ================= //
