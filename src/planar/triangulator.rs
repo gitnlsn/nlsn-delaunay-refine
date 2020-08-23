@@ -26,15 +26,15 @@ impl Triangulator {
     }
 
     /**
-     * Inserts vertex in the triangulation.
-     * If vertex is contained by a hole,
-     * or if it is outside the boundary,
-     * returns the related Polyline.
-     * Else returns self.
+     * Inserts vertex in the triangulation. If any vertex is outside
+     * the boundary or it is inside any hole, no vertices are inserted
+     * and the conflicting set is returned. If out of bounds condition
+     * is not met, vertices are inserted into the hashSet. No duplicate
+     * vertex is kept.
      */
     pub fn insert_vertices(
         &mut self,
-        vertices: HashSet<Rc<Vertex>>,
+        vertices: &HashSet<Rc<Vertex>>,
     ) -> Result<&Self, HashSet<Rc<Vertex>>> {
         let mut panic_vertices: HashSet<Rc<Vertex>> = HashSet::new();
 
@@ -59,94 +59,48 @@ impl Triangulator {
         }
 
         /* Inserts vertices if they don't exist already */
-        for vertex in vertices.iter() {
-            let mut should_insert = true;
-            for segment in self.segments.iter() {
-                if segment.contains(vertex) {
-                    should_insert = false;
-                    break;
-                }
-            }
-
-            if !should_insert {
-                continue;
-            }
-
-            for existing_vertex in self.vertices.iter() {
-                if existing_vertex == vertex {
-                    should_insert = false;
-                    break;
-                }
-            }
-
-            if should_insert {
-                self.vertices.insert(Rc::clone(vertex));
-            }
-        }
+        self.vertices = self
+            .vertices
+            .iter()
+            .chain(vertices.iter())
+            .cloned()
+            .collect::<HashSet<Rc<Vertex>>>();
 
         return Ok(self);
     }
 
     /**
-     * Inserts segment
-     * If segment is inside a hole,
-     * or if it is outside the boundary,
-     * returns the related Polyline.
-     * Else returns self.
+     * Inserts segments to the triangulation. If any segment is not outside
+     * all holes, or if it is not inside the boundary, returns the set of
+     * conflicting segments. If out of bounds condition is not met, all
+     * segments are inserted. Segments that meet intersection are splited.
      */
     pub fn insert_segments(
         &mut self,
-        segments: HashSet<Rc<Edge>>,
+        segments: &HashSet<Rc<Edge>>,
     ) -> Result<&Self, HashSet<Rc<Edge>>> {
-        let mut panic_segments: HashSet<Rc<Edge>> = HashSet::new();
-
+        /* Accumulate conflicting segments */
+        let mut conflicting_segments: HashSet<Rc<Edge>> = HashSet::new();
         for segment in segments.iter() {
             let segment_polyline: Polyline =
                 Polyline::new_opened(vec![Rc::clone(&segment.v1), Rc::clone(&segment.v2)]).unwrap();
 
-            let intersections: HashSet<Rc<Vertex>> =
-                Polyline::intersection_vertices(&segment_polyline, &self.boundary);
-
-            if !intersections.is_empty() {
-                let contains_s1 = self.boundary.contains(&segment.v1) != Some(Continence::Inside);
-                let contains_s2 = self.boundary.contains(&segment.v2) != Some(Continence::Inside);
-                if !contains_s1 || contains_s2 {
-                    panic_segments.insert(Rc::clone(segment));
-                }
+            if Polyline::continence(&self.boundary, &segment_polyline) != Some(Continence::Inside) {
+                conflicting_segments.insert(Rc::clone(segment));
+                continue;
             }
 
             for hole in self.holes.iter() {
-                let intersections: HashSet<Rc<Vertex>> =
-                    Polyline::intersection_vertices(&segment_polyline, hole);
-
-                if !intersections.is_empty() {
-                    let donot_contains_s1 = hole.contains(&segment.v1) != Some(Continence::Outside);
-                    let donot_contains_s2 = hole.contains(&segment.v2) != Some(Continence::Outside);
-                    if !donot_contains_s1 || donot_contains_s2 {
-                        panic_segments.insert(Rc::clone(segment));
-                    }
+                if Polyline::continence(hole, &segment_polyline) != Some(Continence::Outside) {
+                    conflicting_segments.insert(Rc::clone(segment));
+                    continue;
                 }
             }
         }
 
-        if !panic_segments.is_empty() {
-            return Err(panic_segments);
+        if !conflicting_segments.is_empty() {
+            return Err(conflicting_segments);
         }
-
-        /* Removes vertices if contained by a segment */
-        self.vertices = self
-            .vertices
-            .iter()
-            .filter(|vertex| {
-                for segment in segments.iter() {
-                    if segment.contains(vertex) {
-                        return false;
-                    }
-                }
-                return true;
-            })
-            .cloned()
-            .collect();
 
         /* Split segments */
         let new_vertex_pairs = Edge::into_vertex_pairs(segments.iter().cloned().collect());
@@ -160,6 +114,7 @@ impl Triangulator {
                 .cloned()
                 .collect(),
         );
+
         self.segments = Edge::from_vertex_pairs(splited_segments)
             .iter()
             .cloned()
@@ -169,42 +124,64 @@ impl Triangulator {
     }
 
     /**
-     * Sets boundary.
-     * If new boundary intercepts any existing constraint, returns error
-     * with all intercepting vertices. if there is no boundary, empty set
-     * is returned as error. Else returns Ok<self>.
+     * Inserts hole. If hole intercepts the boundary, any existing hole, or
+     * existing segments returns the set of conflicting vertices. If not,
+     * hole is inserted. If any existing vertex or segment belongs to the
+     * hole, it is removed.
      */
     pub fn insert_hole(&mut self, hole: &Rc<Polyline>) -> Result<&Self, HashSet<Rc<Vertex>>> {
-        let mut intersections: HashSet<Rc<Vertex>> = HashSet::new();
+        let mut conflicting_vertices: HashSet<Rc<Vertex>> = HashSet::new();
 
-        let possible_intersections = Polyline::intersection_vertices(&self.boundary, hole);
-        if !possible_intersections.is_empty() {
-            for vertex in possible_intersections.iter() {
-                intersections.insert(Rc::clone(vertex));
-            }
+        let is_hole_inside_boundary =
+            Polyline::continence(&self.boundary, hole) == Some(Continence::Inside);
+
+        if !is_hole_inside_boundary {
+            conflicting_vertices = conflicting_vertices
+                .iter()
+                .chain(self.boundary.vertices.iter())
+                .cloned()
+                .collect();
         }
 
         for existing_hole in self.holes.iter() {
-            let possible_intersections = Polyline::intersection_vertices(&hole, existing_hole);
-            if !possible_intersections.is_empty() {
-                for vertex in possible_intersections.iter() {
-                    intersections.insert(Rc::clone(vertex));
-                }
+            let is_hole_outside_existing_hole =
+                Polyline::continence(existing_hole, hole) == Some(Continence::Outside);
+
+            if !is_hole_outside_existing_hole {
+                conflicting_vertices = conflicting_vertices
+                    .iter()
+                    .chain(existing_hole.vertices.iter())
+                    .cloned()
+                    .collect();
             }
         }
 
-        if intersections.is_empty() {
-            self.holes.insert(Rc::clone(hole));
-            return Ok(self);
+        if !conflicting_vertices.is_empty() {
+            return Err(conflicting_vertices);
         }
 
-        return Err(intersections);
+        for segment in self.segments.iter() {
+            let segment_polyline =
+                Polyline::new_opened(vec![Rc::clone(&segment.v1), Rc::clone(&segment.v2)]).unwrap();
+
+            let relative_continence = Polyline::continence(hole, &segment_polyline);
+            if relative_continence != Some(Continence::Outside) {
+                conflicting_vertices.insert(Rc::clone(&segment.v1));
+                conflicting_vertices.insert(Rc::clone(&segment.v2));
+            }
+        }
+
+        if !conflicting_vertices.is_empty() {
+            return Err(conflicting_vertices);
+        }
+
+        self.holes.insert(Rc::clone(hole));
+        return Ok(self);
     }
 
     /**
-     * Refine the triangulation.
-     * Returns error if there is wrong input or constraints.
-     * Else returns the refined triangulation.
+     * Refine the triangulation. Raises triangulation error if any.
+     * Else refines ans returns the triangulation.
      */
     pub fn refine(&mut self, params: RefineParams) -> Result<&Self, String> {
         if let Err(error) = self.triangulate() {
@@ -218,6 +195,7 @@ impl Triangulator {
         let mut encroach_map: HashMap<Rc<Edge>, HashSet<Rc<Vertex>>> = HashMap::new();
 
         let mut delaunay_vertices: HashSet<Rc<Vertex>> = self.triangulation.borrow().vertices();
+
         let delaunay_edges: HashSet<Rc<Edge>> = self
             .segments
             .iter()
@@ -377,6 +355,7 @@ impl Triangulator {
         self.include_boundary();
         let boundary_segments: HashSet<Rc<Edge>> =
             self.boundary.into_edges().iter().cloned().collect();
+
         constraint_segments = constraint_segments
             .iter()
             .chain(boundary_segments.iter())
@@ -385,9 +364,9 @@ impl Triangulator {
 
         /* Holes inclusion */
         let holes: HashSet<Rc<Polyline>> = self.holes.iter().cloned().collect();
-        let holes_segments: HashSet<Rc<Edge>> = HashSet::new();
         for hole in holes.iter() {
             let included_segments = self.include_hole(&hole, &constraint_segments);
+
             constraint_segments = constraint_segments
                 .iter()
                 .chain(included_segments.iter())
@@ -1190,15 +1169,18 @@ mod include_vertices {
         let v7 = Rc::new(Vertex::new(3.0, 4.0));
         let v8 = Rc::new(Vertex::new(2.0, 3.0));
 
-        let vertices: Vec<Rc<Vertex>> = vec![
+        let vertices: HashSet<Rc<Vertex>> = vec![
             Rc::clone(&v5),
             Rc::clone(&v6),
             Rc::clone(&v7),
             Rc::clone(&v8),
-        ];
+        ]
+        .iter()
+        .cloned()
+        .collect();
 
         let mut triangulator = Triangulator::new(&boundary);
-        triangulator.insert_vertices(vertices.iter().cloned().collect());
+        triangulator.insert_vertices(&vertices);
         triangulator.include_boundary();
         triangulator.include_vertices(vertices.iter().cloned().collect(), &HashSet::new());
 
@@ -1386,7 +1368,11 @@ mod insert_holes {
 
         assert!(result.is_err());
         if let Err(vertices) = result {
-            assert_eq!(vertices.len(), 2);
+            assert_eq!(vertices.len(), 4);
+            assert!(vertices.contains(&v1));
+            assert!(vertices.contains(&v2));
+            assert!(vertices.contains(&v3));
+            assert!(vertices.contains(&v4));
         }
         assert!(triangulator.holes.is_empty());
     }
@@ -1424,12 +1410,171 @@ mod insert_holes {
 
         assert!(result.is_err());
         if let Err(vertices) = result {
-            assert_eq!(vertices.len(), 1);
+            assert_eq!(vertices.len(), 4);
+            assert!(vertices.contains(&v1));
+            assert!(vertices.contains(&v2));
+            assert!(vertices.contains(&v3));
+            assert!(vertices.contains(&v4));
+        }
+        assert!(triangulator.holes.is_empty());
+    }
+
+    #[test]
+    fn two_holes() {
+        /* Squared boundary */
+        let v1 = Rc::new(Vertex::new(1.0, 1.0));
+        let v2 = Rc::new(Vertex::new(4.0, 1.0));
+        let v3 = Rc::new(Vertex::new(4.0, 4.0));
+        let v4 = Rc::new(Vertex::new(1.0, 4.0));
+
+        let mut boundary: Vec<Rc<Vertex>> = Vec::new();
+        boundary.push(Rc::clone(&v1));
+        boundary.push(Rc::clone(&v2));
+        boundary.push(Rc::clone(&v3));
+        boundary.push(Rc::clone(&v4));
+        let boundary = Rc::new(Polyline::new_closed(boundary).unwrap());
+
+        /* Hole 1 */
+        let v11 = Rc::new(Vertex::new(2.0, 2.0));
+        let v12 = Rc::new(Vertex::new(2.9, 2.0));
+        let v13 = Rc::new(Vertex::new(2.0, 2.9));
+
+        let mut hole1_vertices: Vec<Rc<Vertex>> = Vec::new();
+        hole1_vertices.push(Rc::clone(&v11));
+        hole1_vertices.push(Rc::clone(&v12));
+        hole1_vertices.push(Rc::clone(&v13));
+        let hole_1 = Rc::new(Polyline::new_closed(hole1_vertices).unwrap());
+
+        /* Hole 2 */
+        let v21 = Rc::new(Vertex::new(3.0, 3.0));
+        let v22 = Rc::new(Vertex::new(2.1, 3.0));
+        let v23 = Rc::new(Vertex::new(3.0, 2.1));
+
+        let mut hole2_vertices: Vec<Rc<Vertex>> = Vec::new();
+        hole2_vertices.push(Rc::clone(&v21));
+        hole2_vertices.push(Rc::clone(&v22));
+        hole2_vertices.push(Rc::clone(&v23));
+        let hole_2 = Rc::new(Polyline::new_closed(hole2_vertices).unwrap());
+
+        let mut triangulator = Triangulator::new(&boundary);
+        triangulator.insert_hole(&hole_1);
+        let result = triangulator.insert_hole(&hole_2);
+
+        assert!(result.is_ok());
+        assert!(triangulator.holes.contains(&hole_1));
+        assert!(triangulator.holes.contains(&hole_2));
+    }
+
+    #[test]
+    fn error_on_hole_intersection() {
+        /* Squared boundary */
+        let v1 = Rc::new(Vertex::new(1.0, 1.0));
+        let v2 = Rc::new(Vertex::new(4.0, 1.0));
+        let v3 = Rc::new(Vertex::new(4.0, 4.0));
+        let v4 = Rc::new(Vertex::new(1.0, 4.0));
+
+        let mut boundary: Vec<Rc<Vertex>> = Vec::new();
+        boundary.push(Rc::clone(&v1));
+        boundary.push(Rc::clone(&v2));
+        boundary.push(Rc::clone(&v3));
+        boundary.push(Rc::clone(&v4));
+        let boundary = Rc::new(Polyline::new_closed(boundary).unwrap());
+
+        /* Hole 1 */
+        let v11 = Rc::new(Vertex::new(2.0, 2.0));
+        let v12 = Rc::new(Vertex::new(2.9, 2.0));
+        let v13 = Rc::new(Vertex::new(2.0, 2.9));
+
+        let mut hole1_vertices: Vec<Rc<Vertex>> = Vec::new();
+        hole1_vertices.push(Rc::clone(&v11));
+        hole1_vertices.push(Rc::clone(&v12));
+        hole1_vertices.push(Rc::clone(&v13));
+        let hole_1 = Rc::new(Polyline::new_closed(hole1_vertices).unwrap());
+
+        /* Hole 2 */
+        let v21 = Rc::new(Vertex::new(3.0, 3.0));
+        let v22 = Rc::new(Vertex::new(2.1, 3.0));
+        let v23 = Rc::new(Vertex::new(2.9, 2.0));
+        let v24 = Rc::new(Vertex::new(3.0, 2.1));
+
+        let mut hole2_vertices: Vec<Rc<Vertex>> = Vec::new();
+        hole2_vertices.push(Rc::clone(&v21));
+        hole2_vertices.push(Rc::clone(&v22));
+        hole2_vertices.push(Rc::clone(&v23));
+        hole2_vertices.push(Rc::clone(&v24));
+        let hole_2 = Rc::new(Polyline::new_closed(hole2_vertices).unwrap());
+
+        let mut triangulator = Triangulator::new(&boundary);
+        triangulator.insert_hole(&hole_1);
+        let result = triangulator.insert_hole(&hole_2);
+
+        assert!(result.is_err());
+        if let Err(vertices) = result {
+            assert_eq!(vertices.len(), 3);
+            assert!(vertices.contains(&v11));
+            assert!(vertices.contains(&v12));
+            assert!(vertices.contains(&v13));
+        }
+        assert!(triangulator.holes.contains(&hole_1));
+    }
+
+    #[test]
+    fn error_on_segments_wrong_continence() {
+        /* Squared boundary */
+        let v1 = Rc::new(Vertex::new(1.0, 1.0));
+        let v2 = Rc::new(Vertex::new(4.0, 1.0));
+        let v3 = Rc::new(Vertex::new(4.0, 4.0));
+        let v4 = Rc::new(Vertex::new(1.0, 4.0));
+
+        let mut boundary: Vec<Rc<Vertex>> = Vec::new();
+        boundary.push(Rc::clone(&v1));
+        boundary.push(Rc::clone(&v2));
+        boundary.push(Rc::clone(&v3));
+        boundary.push(Rc::clone(&v4));
+        let boundary = Rc::new(Polyline::new_closed(boundary).unwrap());
+
+        /* Segments */
+        let v11 = Rc::new(Vertex::new(2.0, 2.0));
+        let v12 = Rc::new(Vertex::new(3.0, 2.0));
+        let v13 = Rc::new(Vertex::new(3.0, 3.0));
+        let v14 = Rc::new(Vertex::new(2.0, 3.0));
+
+        let segments_constrains: HashSet<Rc<Edge>> = vec![
+            Rc::new(Edge::new(&v11, &v12)),
+            Rc::new(Edge::new(&v13, &v14)),
+        ]
+        .iter()
+        .cloned()
+        .collect();
+
+        /* Hole */
+        let v21 = Rc::new(Vertex::new(1.5, 1.5));
+        let v22 = Rc::new(Vertex::new(3.5, 1.5));
+        let v23 = Rc::new(Vertex::new(3.5, 3.5));
+        let v24 = Rc::new(Vertex::new(1.5, 3.5));
+
+        let mut hole_vertices: Vec<Rc<Vertex>> = Vec::new();
+        hole_vertices.push(Rc::clone(&v21));
+        hole_vertices.push(Rc::clone(&v22));
+        hole_vertices.push(Rc::clone(&v23));
+        hole_vertices.push(Rc::clone(&v24));
+        let hole = Rc::new(Polyline::new_closed(hole_vertices).unwrap());
+
+        let mut triangulator = Triangulator::new(&boundary);
+        triangulator.insert_segments(&segments_constrains);
+        let result = triangulator.insert_hole(&hole);
+
+        assert!(result.is_err());
+        if let Err(vertices) = result {
+            assert_eq!(vertices.len(), 4);
+            assert!(vertices.contains(&v11));
+            assert!(vertices.contains(&v12));
+            assert!(vertices.contains(&v13));
             assert!(vertices.contains(&v14));
         }
         assert!(triangulator.holes.is_empty());
     }
-}
+} /* end - insert_hole tests */
 
 #[cfg(test)]
 mod insert_vertices {
@@ -1461,7 +1606,7 @@ mod insert_vertices {
         inner_vertices.insert(Rc::clone(&v16));
 
         let mut triangulator = Triangulator::new(&boundary);
-        let result = triangulator.insert_vertices(inner_vertices);
+        let result = triangulator.insert_vertices(&inner_vertices);
         assert!(result.is_ok());
 
         assert!(triangulator.vertices.contains(&v14));
@@ -1505,7 +1650,7 @@ mod insert_vertices {
         inner_vertices.insert(Rc::clone(&v16));
 
         let mut triangulator = Triangulator::new(&boundary);
-        let result = triangulator.insert_vertices(inner_vertices);
+        let result = triangulator.insert_vertices(&inner_vertices);
         assert!(result.is_err());
 
         if let Err(panic_vertices) = result {
@@ -1560,7 +1705,7 @@ mod insert_vertices {
 
         let mut triangulator = Triangulator::new(&boundary);
         triangulator.insert_hole(&hole);
-        let result = triangulator.insert_vertices(inner_vertices);
+        let result = triangulator.insert_vertices(&inner_vertices);
         assert!(result.is_err());
 
         if let Err(panic_vertices) = result {
@@ -1602,7 +1747,7 @@ mod insert_segments {
         segments.insert(Rc::clone(&e2));
 
         let mut triangulator = Triangulator::new(&boundary);
-        let result = triangulator.insert_segments(segments);
+        let result = triangulator.insert_segments(&segments);
         if let Err(panic_edges) = &result {
             for edge in panic_edges.iter() {
                 println!("{}", edge);
@@ -1642,7 +1787,7 @@ mod insert_segments {
         segments.insert(Rc::clone(&e2));
 
         let mut triangulator = Triangulator::new(&boundary);
-        let result = triangulator.insert_segments(segments);
+        let result = triangulator.insert_segments(&segments);
         assert!(result.is_err());
 
         if let Err(panic_segments) = result {
@@ -1652,7 +1797,7 @@ mod insert_segments {
     }
 
     #[test]
-    fn removes_vertices_on_continence () {
+    fn donot_remove_vertices_on_continence() {
         /* Squared boundary */
         let v1 = Rc::new(Vertex::new(1.0, 1.0));
         let v2 = Rc::new(Vertex::new(4.0, 1.0));
@@ -1666,7 +1811,7 @@ mod insert_segments {
         boundary.push(Rc::clone(&v4));
         let boundary = Rc::new(Polyline::new_closed(boundary).unwrap());
 
-        /* Segments Vertices */
+        /* Segments */
         let v11 = Rc::new(Vertex::new(2.0, 2.0));
         let v12 = Rc::new(Vertex::new(3.0, 2.0));
         let v13 = Rc::new(Vertex::new(3.0, 3.0));
@@ -1678,7 +1823,7 @@ mod insert_segments {
         segments.insert(Rc::clone(&e1));
         segments.insert(Rc::clone(&e2));
 
-        /* Err Vertices */
+        /* Vertices */
         let v21 = Rc::new(Vertex::new(2.5, 3.0));
         let v22 = Rc::new(Vertex::new(2.0, 2.2));
 
@@ -1687,11 +1832,399 @@ mod insert_segments {
         vertices.insert(Rc::clone(&v22));
 
         let mut triangulator = Triangulator::new(&boundary);
-        triangulator.insert_vertices(vertices);
-        let result = triangulator.insert_segments(segments);
+        triangulator.insert_vertices(&vertices);
+        assert!(!triangulator.vertices.is_empty());
+
+        let result = triangulator.insert_segments(&segments);
         assert!(result.is_ok());
 
-        assert!(!triangulator.vertices.contains(&v21));
+        assert!(triangulator.vertices.contains(&v21));
         assert!(triangulator.vertices.contains(&v22));
+    }
+
+    #[test]
+    fn error_on_inside_hole() {
+        /* Squared boundary */
+        let v1 = Rc::new(Vertex::new(1.0, 1.0));
+        let v2 = Rc::new(Vertex::new(4.0, 1.0));
+        let v3 = Rc::new(Vertex::new(4.0, 4.0));
+        let v4 = Rc::new(Vertex::new(1.0, 4.0));
+
+        let boundary = Rc::new(
+            Polyline::new_closed(vec![
+                Rc::clone(&v1),
+                Rc::clone(&v2),
+                Rc::clone(&v3),
+                Rc::clone(&v4),
+            ])
+            .unwrap(),
+        );
+
+        /* Segments */
+        let v11 = Rc::new(Vertex::new(2.0, 2.0));
+        let v12 = Rc::new(Vertex::new(3.0, 2.0));
+        let v13 = Rc::new(Vertex::new(3.0, 3.0));
+        let v14 = Rc::new(Vertex::new(2.0, 3.0));
+
+        let hole = Rc::new(
+            Polyline::new_closed(vec![
+                Rc::clone(&v11),
+                Rc::clone(&v12),
+                Rc::clone(&v13),
+                Rc::clone(&v14),
+            ])
+            .unwrap(),
+        );
+
+        /* Vertices */
+        let v21 = Rc::new(Vertex::new(2.3, 2.3));
+        let v22 = Rc::new(Vertex::new(2.8, 2.8));
+        let v23 = Rc::new(Vertex::new(1.5, 1.5));
+        let v24 = Rc::new(Vertex::new(1.5, 3.5));
+        let e1 = Rc::new(Edge::new(&v21, &v22));
+        let e2 = Rc::new(Edge::new(&v23, &v24));
+        let segments_set: HashSet<Rc<Edge>> = vec![Rc::clone(&e1), Rc::clone(&e2)]
+            .iter()
+            .cloned()
+            .collect();
+
+        let mut triangulator = Triangulator::new(&boundary);
+        triangulator.insert_hole(&hole);
+        let result = triangulator.insert_segments(&segments_set);
+
+        assert!(result.is_err());
+        if let Err(conflicting_edges) = result {
+            assert!(conflicting_edges.contains(&e1));
+            assert!(!conflicting_edges.contains(&e2));
+        }
+
+        assert!(!triangulator.segments.contains(&e1));
+        assert!(!triangulator.segments.contains(&e2));
+    }
+
+    #[test]
+    fn error_on_hole_intersection() {
+        /* Squared boundary */
+        let v1 = Rc::new(Vertex::new(1.0, 1.0));
+        let v2 = Rc::new(Vertex::new(4.0, 1.0));
+        let v3 = Rc::new(Vertex::new(4.0, 4.0));
+        let v4 = Rc::new(Vertex::new(1.0, 4.0));
+
+        let boundary = Rc::new(
+            Polyline::new_closed(vec![
+                Rc::clone(&v1),
+                Rc::clone(&v2),
+                Rc::clone(&v3),
+                Rc::clone(&v4),
+            ])
+            .unwrap(),
+        );
+
+        /* Segments */
+        let v11 = Rc::new(Vertex::new(2.0, 2.0));
+        let v12 = Rc::new(Vertex::new(3.0, 2.0));
+        let v13 = Rc::new(Vertex::new(3.0, 3.0));
+        let v14 = Rc::new(Vertex::new(2.0, 3.0));
+
+        let hole = Rc::new(
+            Polyline::new_closed(vec![
+                Rc::clone(&v11),
+                Rc::clone(&v12),
+                Rc::clone(&v13),
+                Rc::clone(&v14),
+            ])
+            .unwrap(),
+        );
+
+        /* Vertices */
+        let v21 = Rc::new(Vertex::new(2.3, 2.3));
+        let v22 = Rc::new(Vertex::new(3.5, 2.3));
+        let v23 = Rc::new(Vertex::new(1.5, 1.5));
+        let v24 = Rc::new(Vertex::new(1.5, 3.5));
+        let e1 = Rc::new(Edge::new(&v21, &v22));
+        let e2 = Rc::new(Edge::new(&v23, &v24));
+        let segments_set: HashSet<Rc<Edge>> = vec![Rc::clone(&e1), Rc::clone(&e2)]
+            .iter()
+            .cloned()
+            .collect();
+
+        let mut triangulator = Triangulator::new(&boundary);
+        triangulator.insert_hole(&hole);
+        assert!(triangulator.holes.contains(&hole));
+
+        let result = triangulator.insert_segments(&segments_set);
+        assert!(result.is_err());
+
+        if let Err(conflicting_edges) = result {
+            assert!(conflicting_edges.contains(&e1));
+            assert!(!conflicting_edges.contains(&e2));
+        }
+
+        assert!(!triangulator.segments.contains(&e1));
+        assert!(!triangulator.segments.contains(&e2));
+    }
+
+    #[test]
+    fn error_on_hole_intersection_with_vertices_end_outside() {
+        /* Squared boundary */
+        let v1 = Rc::new(Vertex::new(1.0, 1.0));
+        let v2 = Rc::new(Vertex::new(4.0, 1.0));
+        let v3 = Rc::new(Vertex::new(4.0, 4.0));
+        let v4 = Rc::new(Vertex::new(1.0, 4.0));
+
+        let boundary = Rc::new(
+            Polyline::new_closed(vec![
+                Rc::clone(&v1),
+                Rc::clone(&v2),
+                Rc::clone(&v3),
+                Rc::clone(&v4),
+            ])
+            .unwrap(),
+        );
+
+        /* Hole */
+        let v11 = Rc::new(Vertex::new(2.0, 2.0));
+        let v12 = Rc::new(Vertex::new(3.0, 2.0));
+        let v13 = Rc::new(Vertex::new(3.0, 3.0));
+        let v14 = Rc::new(Vertex::new(2.0, 3.0));
+
+        let hole = Rc::new(
+            Polyline::new_closed(vec![
+                Rc::clone(&v11),
+                Rc::clone(&v12),
+                Rc::clone(&v13),
+                Rc::clone(&v14),
+            ])
+            .unwrap(),
+        );
+
+        /* Segments */
+        let v21 = Rc::new(Vertex::new(1.5, 2.5));
+        let v22 = Rc::new(Vertex::new(3.5, 2.5));
+        let v23 = Rc::new(Vertex::new(3.5, 3.5));
+        let v24 = Rc::new(Vertex::new(1.5, 3.5));
+        let e1 = Rc::new(Edge::new(&v21, &v22));
+        let e2 = Rc::new(Edge::new(&v23, &v24));
+        let segments_set: HashSet<Rc<Edge>> = vec![Rc::clone(&e1), Rc::clone(&e2)]
+            .iter()
+            .cloned()
+            .collect();
+
+        let mut triangulator = Triangulator::new(&boundary);
+        triangulator.insert_hole(&hole);
+        let result = triangulator.insert_segments(&segments_set);
+
+        assert!(result.is_err());
+        if let Err(conflicting_edges) = result {
+            assert!(conflicting_edges.contains(&e1));
+            assert!(!conflicting_edges.contains(&e2));
+        }
+
+        assert!(!triangulator.segments.contains(&e1));
+        assert!(!triangulator.segments.contains(&e2));
+    }
+}
+
+#[cfg(test)]
+mod triangulate {
+    use super::*;
+
+    #[test]
+    fn triangulates_boundary_sample() {
+        /* Squared boundary */
+        let v1 = Rc::new(Vertex::new(1.0, 1.0));
+        let v2 = Rc::new(Vertex::new(4.0, 1.0));
+        let v3 = Rc::new(Vertex::new(4.0, 4.0));
+        let v4 = Rc::new(Vertex::new(1.0, 4.0));
+
+        let boundary = Rc::new(
+            Polyline::new_closed(vec![
+                Rc::clone(&v1),
+                Rc::clone(&v2),
+                Rc::clone(&v3),
+                Rc::clone(&v4),
+            ])
+            .unwrap(),
+        );
+
+        let mut triangulator = Triangulator::new(&boundary);
+        let result = triangulator.triangulate();
+
+        assert!(result.is_ok());
+
+        for edge in boundary.into_edges().iter() {
+            assert!(triangulator.triangulation.borrow().edges().contains(edge));
+        }
+
+        for triangle in triangulator
+            .triangulation
+            .borrow()
+            .triangles
+            .iter()
+            .filter(|t| !t.is_ghost())
+        {
+            assert_eq!(
+                boundary.contains(&triangle.center()),
+                Some(Continence::Inside)
+            );
+        }
+    }
+
+    #[test]
+    fn triangulates_hole() {
+        /* Squared boundary */
+        let v1 = Rc::new(Vertex::new(1.0, 1.0));
+        let v2 = Rc::new(Vertex::new(4.0, 1.0));
+        let v3 = Rc::new(Vertex::new(4.0, 4.0));
+        let v4 = Rc::new(Vertex::new(1.0, 4.0));
+
+        let boundary = Rc::new(
+            Polyline::new_closed(vec![
+                Rc::clone(&v1),
+                Rc::clone(&v2),
+                Rc::clone(&v3),
+                Rc::clone(&v4),
+            ])
+            .unwrap(),
+        );
+
+        /* hole */
+        let v11 = Rc::new(Vertex::new(2.0, 2.0));
+        let v12 = Rc::new(Vertex::new(3.0, 2.0));
+        let v13 = Rc::new(Vertex::new(3.0, 3.0));
+        let v14 = Rc::new(Vertex::new(2.0, 3.0));
+
+        let hole = Rc::new(
+            Polyline::new_closed(vec![
+                Rc::clone(&v11),
+                Rc::clone(&v12),
+                Rc::clone(&v13),
+                Rc::clone(&v14),
+            ])
+            .unwrap(),
+        );
+        let mut triangulator = Triangulator::new(&boundary);
+        if triangulator.insert_hole(&hole).is_err() {
+            panic!("Expected not err");
+        }
+        let result = triangulator.triangulate();
+        assert!(result.is_ok());
+
+        for edge in hole.into_edges().iter().chain(boundary.into_edges().iter()) {
+            assert!(triangulator.triangulation.borrow().edges().contains(edge));
+        }
+
+        for triangle in triangulator
+            .triangulation
+            .borrow()
+            .triangles
+            .iter()
+            .filter(|t| !t.is_ghost())
+        {
+            assert_eq!(hole.contains(&triangle.center()), Some(Continence::Outside));
+            assert_eq!(
+                boundary.contains(&triangle.center()),
+                Some(Continence::Inside)
+            );
+        }
+    }
+
+    #[test]
+    fn includes_segment_constraints() {
+        /* Squared boundary */
+        let v1 = Rc::new(Vertex::new(1.0, 1.0));
+        let v2 = Rc::new(Vertex::new(4.0, 1.0));
+        let v3 = Rc::new(Vertex::new(4.0, 4.0));
+        let v4 = Rc::new(Vertex::new(1.0, 4.0));
+
+        let boundary = Rc::new(
+            Polyline::new_closed(vec![
+                Rc::clone(&v1),
+                Rc::clone(&v2),
+                Rc::clone(&v3),
+                Rc::clone(&v4),
+            ])
+            .unwrap(),
+        );
+
+        /* Segments */
+        let v21 = Rc::new(Vertex::new(1.5, 2.5));
+        let v22 = Rc::new(Vertex::new(3.5, 2.5));
+        let v23 = Rc::new(Vertex::new(3.5, 3.5));
+        let v24 = Rc::new(Vertex::new(1.5, 3.5));
+
+        let e1 = Rc::new(Edge::new(&v21, &v22));
+        let e2 = Rc::new(Edge::new(&v23, &v24));
+        let segments_set: HashSet<Rc<Edge>> = vec![Rc::clone(&e1), Rc::clone(&e2)]
+            .iter()
+            .cloned()
+            .collect();
+
+        let mut triangulator = Triangulator::new(&boundary);
+        if triangulator.insert_segments(&segments_set).is_err() {
+            panic!("Expected not err");
+        }
+
+        let result = triangulator.triangulate();
+        assert!(result.is_ok());
+
+        for constrained_edge in segments_set.iter().chain(boundary.into_edges().iter()) {
+            assert!(Edge::decompose(
+                &triangulator.triangulation.borrow().edges(),
+                constrained_edge
+            )
+            .is_some());
+        }
+    }
+
+    #[test]
+    fn includes_vertex_constraints() {
+        /* Squared boundary */
+        let v1 = Rc::new(Vertex::new(1.0, 1.0));
+        let v2 = Rc::new(Vertex::new(4.0, 1.0));
+        let v3 = Rc::new(Vertex::new(4.0, 4.0));
+        let v4 = Rc::new(Vertex::new(1.0, 4.0));
+
+        let boundary = Rc::new(
+            Polyline::new_closed(vec![
+                Rc::clone(&v1),
+                Rc::clone(&v2),
+                Rc::clone(&v3),
+                Rc::clone(&v4),
+            ])
+            .unwrap(),
+        );
+
+        /* Vertices */
+        let v21 = Rc::new(Vertex::new(1.5, 2.5));
+        let v22 = Rc::new(Vertex::new(3.5, 2.5));
+        let v23 = Rc::new(Vertex::new(3.5, 3.5));
+        let v24 = Rc::new(Vertex::new(1.5, 3.5));
+
+        let vertices_set: HashSet<Rc<Vertex>> = vec![
+            Rc::clone(&v21),
+            Rc::clone(&v22),
+            Rc::clone(&v23),
+            Rc::clone(&v24),
+        ]
+        .iter()
+        .cloned()
+        .collect();
+
+        let mut triangulator = Triangulator::new(&boundary);
+        if triangulator.insert_vertices(&vertices_set).is_err() {
+            panic!("Expected not err");
+        }
+
+        let result = triangulator.triangulate();
+        assert!(result.is_ok());
+
+        for constrained_vertex in vertices_set.iter() {
+            assert!(triangulator
+                .triangulation
+                .borrow()
+                .vertices()
+                .contains(constrained_vertex));
+        }
     }
 }

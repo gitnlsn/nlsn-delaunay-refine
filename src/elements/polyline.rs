@@ -688,6 +688,33 @@ impl Polyline {
     } /* end - subtraction */
 
     /**
+     * Evaluate continece between polylines
+     * Returns Continence value if all vertices of p2 are single sided
+     * agains p1, be it Inside, Outside. Returns None if continence is
+     * not consistent or if intersection occurs or if p1 is opened.
+     */
+    pub fn continence(p1: &Self, p2: &Self) -> Option<Continence> {
+        if p1.opened {
+            return None;
+        }
+
+        let first_vertex = p2.vertices.iter().next().unwrap();
+        let possible_continence: Option<Continence> = p1.contains(first_vertex);
+
+        for p2_vertex in p2.vertices.iter() {
+            if p1.contains(p2_vertex) != possible_continence {
+                return None;
+            }
+        }
+
+        if !Self::intersection_vertices(p1, p2).is_empty() {
+            return None;
+        }
+
+        return possible_continence;
+    }
+
+    /**
      * Searchs for intersections between polylines
      */
     pub fn intersection_vertices(p1: &Self, p2: &Self) -> HashSet<Rc<Vertex>> {
@@ -2027,5 +2054,142 @@ mod minified_noncolinear {
         assert!(!minified.vertices.contains(&v6));
         assert!(!minified.vertices.contains(&v7));
         assert!(minified.vertices.contains(&v8));
+    }
+}
+
+#[cfg(test)]
+mod continence_self {
+    use super::*;
+
+    #[test]
+    fn sample_1() {
+        /* square (1,1) (4,4) */
+        let v1 = Rc::new(Vertex::new(1.0, 1.0));
+        let v2 = Rc::new(Vertex::new(4.0, 1.0));
+        let v3 = Rc::new(Vertex::new(4.0, 4.0));
+        let v4 = Rc::new(Vertex::new(1.0, 4.0));
+
+        let p1 = Polyline::new_closed(vec![
+            Rc::clone(&v1),
+            Rc::clone(&v2),
+            Rc::clone(&v3),
+            Rc::clone(&v4),
+        ])
+        .unwrap();
+
+        /* square (2,2) (3,3) -> inside */
+        let v5 = Rc::new(Vertex::new(2.0, 2.0));
+        let v6 = Rc::new(Vertex::new(3.0, 2.0));
+        let v7 = Rc::new(Vertex::new(3.0, 3.0));
+        let v8 = Rc::new(Vertex::new(2.0, 3.0));
+
+        let p2 = Polyline::new_closed(vec![
+            Rc::clone(&v5),
+            Rc::clone(&v6),
+            Rc::clone(&v7),
+            Rc::clone(&v8),
+        ])
+        .unwrap();
+
+        assert_eq!(Polyline::continence(&p1, &p2), Some(Continence::Inside));
+    }
+
+    #[test]
+    fn sample_2() {
+        /* square (1,1) (4,4) */
+        let v1 = Rc::new(Vertex::new(1.0, 1.0));
+        let v2 = Rc::new(Vertex::new(4.0, 1.0));
+        let v3 = Rc::new(Vertex::new(4.0, 4.0));
+        let v4 = Rc::new(Vertex::new(1.0, 4.0));
+
+        let p1 = Polyline::new_closed(vec![
+            Rc::clone(&v1),
+            Rc::clone(&v2),
+            Rc::clone(&v3),
+            Rc::clone(&v4),
+        ])
+        .unwrap();
+
+        /* square (0,0) (5,5) -> inside */
+        let v5 = Rc::new(Vertex::new(0.0, 0.0));
+        let v6 = Rc::new(Vertex::new(5.0, 0.0));
+        let v7 = Rc::new(Vertex::new(5.0, 5.0));
+        let v8 = Rc::new(Vertex::new(0.0, 5.0));
+
+        let p2 = Polyline::new_closed(vec![
+            Rc::clone(&v5),
+            Rc::clone(&v6),
+            Rc::clone(&v7),
+            Rc::clone(&v8),
+        ])
+        .unwrap();
+
+        assert_eq!(Polyline::continence(&p1, &p2), Some(Continence::Outside));
+    }
+
+    #[test]
+    fn sample_3() {
+        /* square (1,1) (4,4) */
+        let v1 = Rc::new(Vertex::new(1.0, 1.0));
+        let v2 = Rc::new(Vertex::new(4.0, 1.0));
+        let v3 = Rc::new(Vertex::new(4.0, 4.0));
+        let v4 = Rc::new(Vertex::new(1.0, 4.0));
+
+        let p1 = Polyline::new_closed(vec![
+            Rc::clone(&v1),
+            Rc::clone(&v2),
+            Rc::clone(&v3),
+            Rc::clone(&v4),
+        ])
+        .unwrap();
+
+        /* square (2,2) (3,4) -> Boundary */
+        let v5 = Rc::new(Vertex::new(2.0, 2.0));
+        let v6 = Rc::new(Vertex::new(3.0, 2.0));
+        let v7 = Rc::new(Vertex::new(3.0, 4.0));
+        let v8 = Rc::new(Vertex::new(2.0, 4.0));
+
+        let p2 = Polyline::new_closed(vec![
+            Rc::clone(&v5),
+            Rc::clone(&v6),
+            Rc::clone(&v7),
+            Rc::clone(&v8),
+        ])
+        .unwrap();
+
+        assert_eq!(Polyline::continence(&p1, &p2), None);
+    }
+
+    #[test]
+    fn sample_4() {
+        /* square (1,1) (4,4) */
+        let v1 = Rc::new(Vertex::new(1.0, 1.0));
+        let v2 = Rc::new(Vertex::new(4.0, 1.0));
+        let v3 = Rc::new(Vertex::new(4.0, 4.0));
+        let v4 = Rc::new(Vertex::new(1.0, 4.0));
+
+        let p1 = Polyline::new_closed(vec![
+            Rc::clone(&v1),
+            Rc::clone(&v2),
+            Rc::clone(&v3),
+            Rc::clone(&v4),
+        ])
+        .unwrap();
+
+        /* square (0,2) (5,3) -> all vertices outside, with intersection */
+        let v5 = Rc::new(Vertex::new(2.0, 2.0));
+        let v6 = Rc::new(Vertex::new(3.0, 2.0));
+        let v7 = Rc::new(Vertex::new(3.0, 4.0));
+        let v8 = Rc::new(Vertex::new(2.0, 4.0));
+
+        let p2 = Polyline::new_closed(vec![
+            Rc::clone(&v5),
+            Rc::clone(&v6),
+            Rc::clone(&v7),
+            Rc::clone(&v8),
+        ])
+        .unwrap();
+
+        assert_eq!(Polyline::continence(&p1, &p2), None);
     }
 }
