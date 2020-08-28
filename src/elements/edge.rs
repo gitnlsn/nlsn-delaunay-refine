@@ -1,4 +1,4 @@
-use crate::elements::{bounding_box::*, vertex::*};
+use crate::elements::{bounding_box::*, polyline::*, vertex::*};
 use crate::properties::{
     continence::*, distance::*, dot::*, encroachment::*, intersection::*, orientation::*,
     parallel::*,
@@ -337,6 +337,16 @@ impl Edge {
 
         return (head_tail_hashmap, tail_head_hashmap);
     } /* end - into HashMap */
+
+    /**
+     * Constructor to polyline
+     */
+    pub fn as_polyline(&self) -> Option<Polyline> {
+        if self.v1.is_ghost || self.v2.is_ghost {
+            return None;
+        }
+        return Some(Polyline::new_opened(vec![Rc::clone(&self.v1), Rc::clone(&self.v2)]).unwrap());
+    }
 } /* end - edges */
 
 #[cfg(test)]
@@ -678,7 +688,7 @@ mod decompose {
         let v3 = Rc::new(Vertex::new(3.0, 3.0));
         let v4 = Rc::new(Vertex::new(4.0, 4.0));
         let v5 = Rc::new(Vertex::new(5.0, 5.0));
-        
+
         let v10 = Rc::new(Vertex::new(8.0, 8.0));
 
         let e1 = Rc::new(Edge::new(&v1, &v2));
@@ -709,7 +719,7 @@ mod decompose {
         let v3 = Rc::new(Vertex::new(0.0, 3.0));
         let v4 = Rc::new(Vertex::new(4.0, 4.0));
         let v5 = Rc::new(Vertex::new(5.0, 5.0));
-        
+
         let e1 = Rc::new(Edge::new(&v1, &v2));
         let e2 = Rc::new(Edge::new(&v2, &v3));
         let e3 = Rc::new(Edge::new(&v3, &v4));
@@ -729,5 +739,86 @@ mod decompose {
 
         let possible_decomposition = Edge::decompose(&base, &testing_edge);
         assert!(possible_decomposition.is_none());
+    }
+}
+
+#[cfg(test)]
+mod hash_set {
+    use super::*;
+
+    #[test]
+    fn sample_1() {
+        let v1 = Rc::new(Vertex::new(0.0, 0.0));
+        let v2 = Rc::new(Vertex::new(1.0, 1.0));
+        
+        let e1 = Rc::new(Edge::new(&v1, &v2));
+        let e2 = Rc::new(Edge::new(&v1, &v2));
+
+        let set = vec![
+            Rc::clone(&e1),
+            Rc::clone(&e2),
+        ].iter().cloned().collect::<HashSet<Rc<Edge>>>();
+
+        assert_eq!(set.len(), 1);
+    }
+
+    #[test]
+    fn sample_2() {
+        let v1 = Rc::new(Vertex::new(0.0, 0.0));
+        let v2 = Rc::new(Vertex::new(1.0, 0.0));
+        let v3 = Rc::new(Vertex::new(2.0, 2.0));
+        
+        let e1 = Rc::new(Edge::new(&v1, &v2));
+        let e2 = Rc::new(Edge::new(&v2, &v3));
+        let e3 = Rc::new(Edge::new(&v1, &v3));
+        
+        let e4 = Rc::new(Edge::new(&v1, &v2));
+
+        let set = vec![
+            Rc::clone(&e1),
+            Rc::clone(&e2),
+            Rc::clone(&e3),
+            Rc::clone(&e4),
+        ].iter().cloned().collect::<HashSet<Rc<Edge>>>();
+
+        assert_eq!(set.len(), 3);
+    }
+
+    #[test]
+    fn sample_3() {
+        let v1 = Rc::new(Vertex::new(0.0, 0.0));
+        let v2 = Rc::new(Vertex::new(1.0, 0.0));
+        let v3 = Rc::new(Vertex::new(2.0, 2.0));
+        
+        let e1 = Rc::new(Edge::new(&v1, &v2));
+        let e2 = Rc::new(Edge::new(&v2, &v3));
+        let e3 = Rc::new(Edge::new(&v1, &v3));
+
+        let set = vec![
+            Rc::clone(&e1),
+            Rc::clone(&e2),
+            Rc::clone(&e3),
+        ].iter().cloned().collect::<HashSet<Rc<Edge>>>();
+
+        assert!(set.contains(&Edge::new(&v1, &v2)));
+    }
+
+    #[test]
+    fn sample_4() {
+        let v1 = Rc::new(Vertex::new(0.0, 0.0));
+        let v2 = Rc::new(Vertex::new(1.0, 0.0));
+        let v3 = Rc::new(Vertex::new(2.0, 2.0));
+        
+        let e1 = Rc::new(Edge::new(&v1, &v2));
+        let e2 = Rc::new(Edge::new(&v2, &v3));
+        let e3 = Rc::new(Edge::new(&v1, &v3));
+
+        let set = vec![
+            Rc::clone(&e1),
+            Rc::clone(&e2),
+            Rc::clone(&e3),
+        ].iter().cloned().collect::<HashSet<Rc<Edge>>>();
+
+        assert!(set.contains(&Rc::new(Edge::new(&v1, &v2))));
     }
 }

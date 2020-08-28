@@ -1,8 +1,8 @@
-use crate::elements::{bounding_box::*, edge::*, vertex::*};
+use crate::elements::{bounding_box::*, edge::*, triangle::*, vertex::*};
 
 use crate::properties::angle::*;
 use crate::properties::area::area_segments;
-use crate::properties::continence::Continence;
+use crate::properties::continence::*;
 use crate::properties::dot::*;
 use crate::properties::intersection::*;
 use crate::properties::midpoint::*;
@@ -693,26 +693,59 @@ impl Polyline {
      * agains p1, be it Inside, Outside. Returns None if continence is
      * not consistent or if intersection occurs or if p1 is opened.
      */
-    pub fn continence(p1: &Self, p2: &Self) -> Option<Continence> {
+    pub fn continence(p1: &Self, p2: &Self) -> Option<(Continence, BoundaryInclusion)> {
         if p1.opened {
             return None;
         }
 
-        let first_vertex = p2.vertices.iter().next().unwrap();
-        let possible_continence: Option<Continence> = p1.contains(first_vertex);
+        let mut possible_continence: Option<Continence> = None;
+        let mut possible_boundary: BoundaryInclusion = BoundaryInclusion::Open;
 
-        for p2_vertex in p2.vertices.iter() {
-            if p1.contains(p2_vertex) != possible_continence {
+        for critial_vertex in p2
+            .into_edges()
+            .iter()
+            .map(|e| vec![Rc::new(e.midpoint()), Rc::clone(&e.v1)])
+            .flatten()
+        {
+            let continence = p1.contains(&critial_vertex).unwrap();
+            if continence == Continence::Boundary {
+                if possible_boundary == BoundaryInclusion::Open {
+                    possible_boundary = BoundaryInclusion::Closed;
+                }
+            } else {
+                if possible_continence.is_none() {
+                    possible_continence = Some(continence);
+                    continue;
+                }
+                if possible_continence != Some(continence) {
+                    return None;
+                }
+            }
+        }
+
+        let p1_pairs = vertex_pairs(&p1.vertices, p1.opened);
+        let p2_pairs = vertex_pairs(&p2.vertices, p2.opened);
+
+        let splited_edges = Edge::from_vertex_pairs(split_intersections(
+            &p1_pairs.iter().chain(p2_pairs.iter()).cloned().collect(),
+        ));
+
+        for edge in splited_edges.iter() {
+            let critial_vertex = Rc::new(edge.midpoint());
+            let continence = p1.contains(&critial_vertex).unwrap();
+            if continence == Continence::Boundary {
+                continue;
+            }
+            if Some(continence) != possible_continence {
                 return None;
             }
         }
 
-        if !Self::intersection_vertices(p1, p2).is_empty() {
-            return None;
+        if possible_boundary == BoundaryInclusion::Closed && possible_continence.is_none() {
+            return Some((Continence::Boundary, BoundaryInclusion::Closed));
         }
-
-        return possible_continence;
-    }
+        return Some((possible_continence.unwrap(), possible_boundary));
+    } /* end - continence */
 
     /**
      * Searchs for intersections between polylines
@@ -764,6 +797,36 @@ impl Polyline {
             .iter()
             .map(|(v1, v2)| Rc::new(Edge::new(v1, v2)))
             .collect::<Vec<Rc<Edge>>>()
+    }
+
+    /**
+     * Detemines the hull that defines the boundary of the triangles set.
+     * If the triangles are adjacent in-between 2-by-2 and occupies a single
+     * continuous domain, the hull is returned. Else returns None.
+     */
+    pub fn triangles_hull(triangles: &HashSet<Rc<Triangle>>) -> Option<Self> {
+        let mut aux_segments: HashSet<Rc<Edge>> = triangles
+            .iter()
+            .map(|t| t.inner_edges())
+            .map(|(e1, e2, e3)| vec![e1, e2, e3])
+            .flatten()
+            .collect();
+
+        let mut boundary_edges: HashMap<Rc<Edge>, Rc<Edge>> = HashMap::new();
+        while !aux_segments.is_empty() {
+            let possible_segment = Rc::clone(aux_segments.iter().next().unwrap());
+            aux_segments.remove(&possible_segment);
+
+            if boundary_edges.contains_key(&possible_segment) {
+                boundary_edges.remove(&possible_segment);
+                continue;
+            }
+
+            boundary_edges.insert(Rc::new(possible_segment.opposite()), possible_segment);
+        }
+        let boundary_edges = boundary_edges.values().cloned().collect();
+
+        return Self::arrange(&boundary_edges);
     }
 } /* end - impl */
 
@@ -2091,7 +2154,10 @@ mod continence_self {
         ])
         .unwrap();
 
-        assert_eq!(Polyline::continence(&p1, &p2), Some(Continence::Inside));
+        assert_eq!(
+            Polyline::continence(&p1, &p2),
+            Some((Continence::Inside, BoundaryInclusion::Open))
+        );
     }
 
     #[test]
@@ -2124,7 +2190,10 @@ mod continence_self {
         ])
         .unwrap();
 
-        assert_eq!(Polyline::continence(&p1, &p2), Some(Continence::Outside));
+        assert_eq!(
+            Polyline::continence(&p1, &p2),
+            Some((Continence::Outside, BoundaryInclusion::Open))
+        );
     }
 
     #[test]
@@ -2157,7 +2226,10 @@ mod continence_self {
         ])
         .unwrap();
 
-        assert_eq!(Polyline::continence(&p1, &p2), None);
+        assert_eq!(
+            Polyline::continence(&p1, &p2),
+            Some((Continence::Inside, BoundaryInclusion::Closed))
+        );
     }
 
     #[test]
@@ -2176,11 +2248,11 @@ mod continence_self {
         ])
         .unwrap();
 
-        /* square (0,2) (5,3) -> all vertices outside, with intersection */
-        let v5 = Rc::new(Vertex::new(2.0, 2.0));
-        let v6 = Rc::new(Vertex::new(3.0, 2.0));
-        let v7 = Rc::new(Vertex::new(3.0, 4.0));
-        let v8 = Rc::new(Vertex::new(2.0, 4.0));
+        /* square (2,0) (3,5) -> all vertices outside, with intersection */
+        let v5 = Rc::new(Vertex::new(2.0, 0.0));
+        let v6 = Rc::new(Vertex::new(3.0, 0.0));
+        let v7 = Rc::new(Vertex::new(3.0, 5.0));
+        let v8 = Rc::new(Vertex::new(2.0, 5.0));
 
         let p2 = Polyline::new_closed(vec![
             Rc::clone(&v5),
@@ -2192,4 +2264,167 @@ mod continence_self {
 
         assert_eq!(Polyline::continence(&p1, &p2), None);
     }
-}
+
+    #[test]
+    fn sample_5() {
+        /* hexagon */
+        let v1 = Rc::new(Vertex::new(1.0, 0.0));
+        let v2 = Rc::new(Vertex::new(2.0, 0.0));
+        let v3 = Rc::new(Vertex::new(3.0, 1.0));
+        let v4 = Rc::new(Vertex::new(2.0, 2.0));
+        let v5 = Rc::new(Vertex::new(1.0, 2.0));
+        let v6 = Rc::new(Vertex::new(0.0, 1.0));
+
+        let p1 = Polyline::new_closed(vec![
+            Rc::clone(&v1),
+            Rc::clone(&v2),
+            Rc::clone(&v3),
+            Rc::clone(&v4),
+            Rc::clone(&v5),
+            Rc::clone(&v6),
+        ])
+        .unwrap();
+
+        /* Internal triangles */
+        for v in vec![
+            Rc::clone(&v3),
+            Rc::clone(&v4),
+            Rc::clone(&v5),
+            Rc::clone(&v6),
+        ]
+        .iter()
+        {
+            let p2 =
+                Polyline::new_closed(vec![Rc::clone(&v1), Rc::clone(&v2), Rc::clone(&v)]).unwrap();
+            assert_eq!(
+                Polyline::continence(&p1, &p2),
+                Some((Continence::Inside, BoundaryInclusion::Closed))
+            );
+        }
+    } /* end - internal triangles test */
+
+    #[test]
+    fn sample_6() {
+        /* hexagon */
+        let v1 = Rc::new(Vertex::new(1.0, 0.0));
+        let v2 = Rc::new(Vertex::new(2.0, 0.0));
+        let v3 = Rc::new(Vertex::new(3.0, 1.0));
+        let v4 = Rc::new(Vertex::new(2.0, 2.0));
+        let v5 = Rc::new(Vertex::new(1.0, 2.0));
+        let v6 = Rc::new(Vertex::new(0.0, 1.0));
+
+        let p1 = Polyline::new_closed(vec![
+            Rc::clone(&v1),
+            Rc::clone(&v2),
+            Rc::clone(&v3),
+            Rc::clone(&v4),
+            Rc::clone(&v5),
+            Rc::clone(&v6),
+        ])
+        .unwrap();
+
+        /* Identity */
+        let p2 = Polyline::new_closed(vec![
+            Rc::clone(&v2),
+            Rc::clone(&v3),
+            Rc::clone(&v4),
+            Rc::clone(&v5),
+            Rc::clone(&v6),
+            Rc::clone(&v1),
+        ])
+        .unwrap();
+        assert_eq!(
+            Polyline::continence(&p1, &p2),
+            Some((Continence::Boundary, BoundaryInclusion::Closed))
+        );
+    } /* end - internal triangles test */
+} /* end - continence self self tests */
+
+#[cfg(test)]
+mod triangles_hull {
+    use super::*;
+
+    #[test]
+    fn sample_1() {
+        /* boundary */
+        let v1 = Rc::new(Vertex::new(1.0, 1.0));
+        let v2 = Rc::new(Vertex::new(5.0, 1.0));
+        let v3 = Rc::new(Vertex::new(5.0, 5.0));
+        let v4 = Rc::new(Vertex::new(1.0, 5.0));
+
+        /* square hole */
+        let v5 = Rc::new(Vertex::new(3.0, 2.0));
+        let v6 = Rc::new(Vertex::new(4.0, 3.0));
+
+        let t1 = Rc::new(Triangle::new(&v6, &v5, &v2));
+        let t2 = Rc::new(Triangle::new(&v5, &v4, &v1));
+        let t3 = Rc::new(Triangle::new(&v6, &v3, &v4));
+        let t4 = Rc::new(Triangle::new(&v5, &v6, &v4));
+        let t5 = Rc::new(Triangle::new(&v2, &v5, &v1));
+
+        let hull = Polyline::triangles_hull(
+            &vec![
+                Rc::clone(&t1),
+                Rc::clone(&t2),
+                Rc::clone(&t3),
+                Rc::clone(&t4),
+                Rc::clone(&t5),
+            ]
+            .iter()
+            .cloned()
+            .collect(),
+        )
+        .unwrap();
+
+        assert!(hull.vertices.contains(&v1));
+        assert!(hull.vertices.contains(&v2));
+        assert!(hull.vertices.contains(&v3));
+        assert!(hull.vertices.contains(&v4));
+        assert!(hull.vertices.contains(&v6));
+    }
+
+    #[test]
+    fn sample_2() {
+        /* boundary */
+        let v1 = Rc::new(Vertex::new(1.0, 1.0));
+        let v2 = Rc::new(Vertex::new(6.0, 1.0));
+        // let v3 = Rc::new(Vertex::new(6.0, 5.0));
+        let v4 = Rc::new(Vertex::new(1.0, 5.0));
+
+        /* hexagonal hole */
+        // let v5 = Rc::new(Vertex::new(3.0, 2.0));
+        let v6 = Rc::new(Vertex::new(4.0, 2.0));
+        // let v7 = Rc::new(Vertex::new(5.0, 3.0));
+        let v8 = Rc::new(Vertex::new(4.0, 4.0));
+        let v9 = Rc::new(Vertex::new(3.0, 4.0));
+        let v10 = Rc::new(Vertex::new(2.0, 3.0));
+
+        let t1 = Rc::new(Triangle::new(&v9, &v6, &v8));
+        let t2 = Rc::new(Triangle::new(&v10, &v4, &v1));
+        let t3 = Rc::new(Triangle::new(&v10, &v1, &v6));
+        let t4 = Rc::new(Triangle::new(&v6, &v1, &v2));
+        let t5 = Rc::new(Triangle::new(&v9, &v10, &v6));
+
+        let hull = Polyline::triangles_hull(
+            &vec![
+                Rc::clone(&t1),
+                Rc::clone(&t2),
+                Rc::clone(&t3),
+                Rc::clone(&t4),
+                Rc::clone(&t5),
+            ]
+            .iter()
+            .cloned()
+            .collect(),
+        )
+        .unwrap();
+
+        assert!(hull.vertices.contains(&v1));
+        assert!(hull.vertices.contains(&v2));
+        assert!(hull.vertices.contains(&v6));
+        assert!(hull.vertices.contains(&v8));
+        assert!(hull.vertices.contains(&v9));
+        assert!(hull.vertices.contains(&v10));
+        assert!(hull.vertices.contains(&v4));
+    }
+} /* end - triangles_hull */

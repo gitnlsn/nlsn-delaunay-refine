@@ -1,4 +1,4 @@
-use crate::elements::{edge::*, vertex::*};
+use crate::elements::{edge::*, polyline::*, vertex::*};
 use crate::properties::{area::*, circumcenter::*, continence::*, distance::*, orientation::*};
 
 use std::cmp::Eq;
@@ -145,6 +145,20 @@ impl Triangle {
             return None;
         }
     }
+
+    pub fn as_polyline(&self) -> Option<Polyline> {
+        if self.is_ghost() {
+            return None;
+        }
+        Some(
+            Polyline::new_closed(vec![
+                Rc::clone(&self.v1),
+                Rc::clone(&self.v2),
+                Rc::clone(&self.v3),
+            ])
+            .unwrap(),
+        )
+    }
 }
 
 #[cfg(test)]
@@ -215,6 +229,17 @@ mod encircles {
         let v4 = Rc::new(Vertex::new(1.0, 1.0));
         assert_eq!(t1.encircles(&v4), Continence::Boundary);
     }
+
+    #[test]
+    fn exception_1() {
+        let v1 = Rc::new(Vertex::new(4.0, 6.0));
+        let v2 = Rc::new(Vertex::new(3.0, 3.0));
+        let v3 = Rc::new(Vertex::new(5.0, 4.0));
+        let t1 = Triangle::new(&v1, &v2, &v3);
+
+        let v4 = Rc::new(Vertex::new(5.0, 5.0));
+        assert_eq!(t1.encircles(&v4), Continence::Boundary);
+    }
 }
 
 #[cfg(test)]
@@ -262,3 +287,33 @@ mod center {
         assert_eq!(center.y, 1.0 / 3.0);
     }
 }
+
+#[cfg(test)]
+mod as_polyline {
+    use super::*;
+
+    #[test]
+    fn none_if_ghost() {
+        let v1 = Rc::new(Vertex::new(0.0, 0.0));
+        let v2 = Rc::new(Vertex::new(1.0, 0.0));
+        // let v3 = Rc::new(Vertex::new(0.0, 1.0));
+        let v_ghost = Rc::new(Vertex::new_ghost());
+
+        let triangle = Triangle::new(&v1, &v2, &v_ghost);
+        assert!(triangle.as_polyline().is_none());
+    }
+
+    #[test]
+    fn polyline_if_solid() {
+        let v1 = Rc::new(Vertex::new(0.0, 0.0));
+        let v2 = Rc::new(Vertex::new(1.0, 0.0));
+        let v3 = Rc::new(Vertex::new(0.0, 1.0));
+        // let v_ghost = Rc::new(Vertex::new_ghost());
+
+        let triangle = Triangle::new(&v1, &v2, &v3);
+        assert!(triangle.as_polyline().is_some());
+        assert!(triangle.as_polyline().unwrap().vertices.contains(&v1));
+        assert!(triangle.as_polyline().unwrap().vertices.contains(&v2));
+        assert!(triangle.as_polyline().unwrap().vertices.contains(&v3));
+    }
+} /* end - as_polyline tests */

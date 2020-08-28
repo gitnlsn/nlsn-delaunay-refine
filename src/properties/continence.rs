@@ -11,6 +11,12 @@ pub enum Continence {
     Boundary,
 }
 
+#[derive(PartialEq, Debug)]
+pub enum BoundaryInclusion {
+    Open,
+    Closed,
+}
+
 /**
  * Checks whether Vertex d is contained by the circumcircle defined by triangle(a,b,c).
  * Vertices a, b and c must be in counterclockwise order.
@@ -24,12 +30,14 @@ pub fn continence(a: &Vertex, b: &Vertex, c: &Vertex, d: &Vertex) -> Continence 
     );
     let det = matrix.determinant();
 
+    if float_cmp::approx_eq!(f64, det, 0.0, epsilon = 1.0E-14f64) {
+        return Continence::Boundary;
+    }
+
     if det > 0.0 {
         return Continence::Inside;
-    } else if det < 0.0 {
-        return Continence::Outside;
     } else {
-        return Continence::Boundary;
+        return Continence::Outside;
     }
 }
 

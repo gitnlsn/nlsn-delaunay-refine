@@ -35,6 +35,18 @@ impl Triangulation {
         }
     }
 
+    pub fn from_initial_segment((v1, v2): (&Rc<Vertex>, &Rc<Vertex>)) -> Self {
+        let mut triangulation = Self::new();
+        let ghost_vertex = Rc::new(Vertex::new_ghost());
+        let t1 = Rc::new(Triangle::new(v1, v2, &ghost_vertex));
+        let t2 = Rc::new(Triangle::new(v2, v1, &ghost_vertex));
+
+        triangulation.include_triangle(&t1);
+        triangulation.include_triangle(&t2);
+
+        return triangulation;
+    }
+
     pub fn include_triangle(&mut self, triangle: &Rc<Triangle>) -> bool {
         if self.triangles.contains(triangle) {
             return false;
@@ -60,9 +72,9 @@ impl Triangulation {
     pub fn vertices(&self) -> HashSet<Rc<Vertex>> {
         self.triangles
             .iter()
-            .filter(|triangle| !triangle.is_ghost())
             .map(|t| vec![Rc::clone(&t.v1), Rc::clone(&t.v2), Rc::clone(&t.v3)])
             .flatten()
+            .filter(|vertex| !vertex.is_ghost)
             .collect::<HashSet<Rc<Vertex>>>()
     }
 
@@ -70,12 +82,8 @@ impl Triangulation {
         self.triangles
             .iter()
             .map(|t| {
-                let (e1,e2,e3) = t.inner_edges();
-                return vec![
-                    Rc::clone(&e1),
-                    Rc::clone(&e2),
-                    Rc::clone(&e3),
-                ];
+                let (e1, e2, e3) = t.inner_edges();
+                return vec![Rc::clone(&e1), Rc::clone(&e2), Rc::clone(&e3)];
             })
             .flatten()
             .collect::<HashSet<Rc<Edge>>>()

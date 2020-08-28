@@ -32,6 +32,12 @@ mod planar {
     pub mod triangulator;
     pub mod triangulation_data;
     pub mod refine_params;
+    pub mod procedures {
+        pub mod vertices;
+        pub mod segment;
+        pub mod boundary;
+        pub mod hole;
+    }
 }
 
 // ================= //
