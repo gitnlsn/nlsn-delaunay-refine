@@ -1,7 +1,7 @@
 use crate::elements::vertex::*;
 use nalgebra::{Matrix2, Matrix2x1};
 
-pub fn circumcenter(v1: &Vertex, v2: &Vertex, v3: &Vertex) -> Vertex {
+pub fn circumcenter(v1: &Vertex, v2: &Vertex, v3: &Vertex) -> Option<Vertex> {
     /*
         Let (x1,y1), (x2,y2), (x3,y3) be the vertices of a triangle.self
             then (xc,yc) is the circumcenter, if it exists:
@@ -22,7 +22,7 @@ pub fn circumcenter(v1: &Vertex, v2: &Vertex, v3: &Vertex) -> Vertex {
     let matrix_a = Matrix2::new(x3 - x1, y3 - y1, x2 - x1, y2 - y1);
 
     if !matrix_a.is_invertible() {
-        panic!("Triangle has no circumcircle. Vertices might be colinear.");
+        return None;
     }
 
     let matrix_a_inv = matrix_a.try_inverse().unwrap();
@@ -37,7 +37,7 @@ pub fn circumcenter(v1: &Vertex, v2: &Vertex, v3: &Vertex) -> Vertex {
     let xc = center_matrix[0];
     let yc = center_matrix[1];
 
-    return Vertex::new(xc, yc);
+    return Some(Vertex::new(xc, yc));
 }
 
 #[cfg(test)]
@@ -50,19 +50,19 @@ mod circumcenter {
         let v2 = Vertex::new(1.0, 0.0);
         let v3 = Vertex::new(1.0, 1.0);
 
-        let c = circumcenter(&v1, &v2, &v3);
+        let c = circumcenter(&v1, &v2, &v3).unwrap();
         assert_eq!(c.x, 0.5);
         assert_eq!(c.y, 0.5);
 
-        let c = circumcenter(&v2, &v3, &v1);
+        let c = circumcenter(&v2, &v3, &v1).unwrap();
         assert_eq!(c.x, 0.5);
         assert_eq!(c.y, 0.5);
 
-        let c = circumcenter(&v3, &v1, &v2);
+        let c = circumcenter(&v3, &v1, &v2).unwrap();
         assert_eq!(c.x, 0.5);
         assert_eq!(c.y, 0.5);
 
-        let c = circumcenter(&v1, &v3, &v2);
+        let c = circumcenter(&v1, &v3, &v2).unwrap();
         assert_eq!(c.x, 0.5);
         assert_eq!(c.y, 0.5);
     }
@@ -73,18 +73,17 @@ mod circumcenter {
         let v2 = Vertex::new(1.0, 0.0);
         let v3 = Vertex::new(0.5, 0.86602540378);
 
-        let c = circumcenter(&v1, &v2, &v3);
+        let c = circumcenter(&v1, &v2, &v3).unwrap();
         assert!((c.x - 0.5).abs() < 0.00000001);
         assert!((c.y - 0.28867513459).abs() < 0.00000001);
     }
 
     #[test]
-    #[should_panic]
-    fn test_panics_if_colinear() {
+    fn none_if_colinear_points() {
         let v1 = Vertex::new(0.0, 0.0);
         let v2 = Vertex::new(1.0, 0.0);
         let v3 = Vertex::new(0.5, 0.0);
 
-        circumcenter(&v1, &v2, &v3);
+        assert!(circumcenter(&v1, &v2, &v3).is_none());
     }
 }

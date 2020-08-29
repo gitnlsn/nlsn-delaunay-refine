@@ -1,7 +1,7 @@
 use crate::elements::{edge::*, polyline::*, triangle::*, vertex::*};
 use crate::planar::triangulation::*;
 
-use crate::planar::procedures;
+use crate::planar::triangulation_procedures;
 
 use std::collections::HashSet;
 use std::rc::Rc;
@@ -22,7 +22,7 @@ pub fn include(
         .map(|e| Rc::new(e.opposite()))
         .collect::<HashSet<Rc<Edge>>>();
 
-    procedures::vertices::include(
+    triangulation_procedures::vertices::include(
         triangulation,
         boundary.vertices.iter().cloned().collect(),
         segment_constraints,

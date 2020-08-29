@@ -68,13 +68,21 @@ impl Triangle {
             */
             match orientation(&self.v1, &self.v2, &vertex) {
                 Orientation::Counterclockwise => return Continence::Inside,
-                _ => return Continence::Outside,
+                Orientation::Clockwise => return Continence::Outside,
+                Orientation::Colinear => return Continence::Boundary,
             }
         }
     }
 
-    pub fn circumcenter(&self) -> Rc<Vertex> {
-        return Rc::new(circumcenter(&self.v1, &self.v2, &self.v3));
+    /**
+     * Determines the circumcenter.
+     * Returns None, if ghost of colinear vertices.
+     */
+    pub fn circumcenter(&self) -> Option<Vertex> {
+        if self.is_ghost() {
+            return None;
+        }
+        return circumcenter(&self.v1, &self.v2, &self.v3);
     }
 
     pub fn quality_ratio(&self) -> f64 {

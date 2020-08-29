@@ -1,5 +1,5 @@
 use crate::elements::{edge::*, polyline::*, triangle::*, vertex::*};
-use crate::planar::{procedures, triangulation::*};
+use crate::planar::{triangulation::*, triangulation_procedures};
 use crate::properties::continence::Continence;
 
 use std::collections::HashSet;
@@ -20,7 +20,7 @@ pub fn include(
         .collect::<HashSet<Rc<Edge>>>();
 
     /* Inserts hole vertices */
-    procedures::vertices::include(
+    triangulation_procedures::vertices::include(
         triangulation,
         hole.vertices.iter().cloned().collect(),
         segment_constraints,
@@ -58,7 +58,7 @@ pub fn include(
             break;
         }
 
-        procedures::segment::include(
+        triangulation_procedures::segment::include(
             triangulation,
             missing_segment.unwrap(),
             &segment_constraints,
@@ -144,9 +144,9 @@ mod include_hole {
         let hole = Rc::new(Polyline::new_closed(hole).unwrap());
 
         let mut triangulation = Triangulation::from_initial_segment((&v1, &v2));
-        procedures::boundary::include(&mut triangulation, &boundary, &HashSet::new());
+        triangulation_procedures::boundary::include(&mut triangulation, &boundary, &HashSet::new());
 
-        procedures::hole::include(
+        triangulation_procedures::hole::include(
             &mut triangulation,
             &hole,
             &boundary.into_edges().iter().cloned().collect(),
@@ -218,8 +218,8 @@ mod include_hole {
         let hole = Rc::new(Polyline::new_closed(hole).unwrap());
 
         let mut triangulation = Triangulation::from_initial_segment((&v1, &v2));
-        procedures::boundary::include(&mut triangulation, &boundary, &HashSet::new());
-        procedures::hole::include(
+        triangulation_procedures::boundary::include(&mut triangulation, &boundary, &HashSet::new());
+        triangulation_procedures::hole::include(
             &mut triangulation,
             &hole,
             &boundary.into_edges().iter().cloned().collect(),
@@ -308,8 +308,8 @@ mod include_hole {
         let hole = Rc::new(Polyline::new_closed(hole).unwrap());
 
         let mut triangulation = Triangulation::from_initial_segment((&v1, &v2));
-        procedures::boundary::include(&mut triangulation, &boundary, &HashSet::new());
-        procedures::hole::include(
+        triangulation_procedures::boundary::include(&mut triangulation, &boundary, &HashSet::new());
+        triangulation_procedures::hole::include(
             &mut triangulation,
             &hole,
             &boundary.into_edges().iter().cloned().collect(),

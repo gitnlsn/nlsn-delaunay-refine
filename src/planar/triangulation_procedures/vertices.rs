@@ -1,5 +1,5 @@
 use crate::elements::{edge::*, polyline::*, triangle::*, vertex::*};
-use crate::planar::{procedures, triangulation::*};
+use crate::planar::{triangulation::*, triangulation_procedures};
 use crate::properties::continence::*;
 
 use std::collections::{HashMap, HashSet};
@@ -74,7 +74,6 @@ pub fn include(
             vertices.append(&mut conflicting_vertices);
         }
 
-        println!();
         while !pending_cavities.is_empty() {
             let edge: Rc<Edge> = pending_cavities.pop().unwrap();
             let edge_to_outer_triangle: Rc<Edge> = Rc::new(edge.opposite());
@@ -86,7 +85,18 @@ pub fn include(
                     .unwrap(),
             );
 
-            let is_conflicting = outer_triangle.encircles(&conflict_vertex) == Continence::Inside;
+            let mut is_conflicting =
+                outer_triangle.encircles(&conflict_vertex) == Continence::Inside;
+
+            if outer_triangle.is_ghost() && !is_conflicting {
+                let outer_edge = Edge::new(&outer_triangle.v1, &outer_triangle.v2);
+                is_conflicting = outer_edge.contains(&conflict_vertex);
+                // Uncomment to debug
+                // println!(
+                //     "{} {} conflicting: {}",
+                //     outer_triangle, conflict_vertex, is_conflicting
+                // );
+            }
 
             let is_constrained = segment_constraints.contains(&edge_to_outer_triangle)
                 || segment_constraints.contains(&edge);
@@ -231,8 +241,9 @@ fn may_insert_triangle(
     }
 
     for hole in holes.iter() {
-        if Polyline::continence(&hole, &p2) != Some((Continence::Outside, BoundaryInclusion::Open))
-        {
+        if let Some((continence, _)) = Polyline::continence(&hole, &p2) {
+            is_outside_holes = continence != Continence::Inside;
+        } else {
             is_outside_holes = false;
         }
     }
@@ -281,7 +292,7 @@ mod include_vertices {
         .collect();
 
         let mut triangulation = Triangulation::from_initial_segment((&v1, &v2));
-        procedures::vertices::include(
+        triangulation_procedures::vertices::include(
             &mut triangulation,
             vertices.iter().cloned().collect(),
             &HashSet::new(),
@@ -343,7 +354,7 @@ mod include_vertices {
         let s1 = Rc::new(Edge::new(&v5, &v6));
 
         let mut triangulation = Triangulation::from_initial_segment((&v5, &v6));
-        procedures::vertices::include(
+        triangulation_procedures::vertices::include(
             &mut triangulation,
             vertices.iter().cloned().collect(),
             &vec![Rc::clone(&s1)].iter().cloned().collect(),
@@ -402,7 +413,7 @@ mod include_vertices {
         let boundary = Rc::new(Polyline::new_closed(vertices.iter().cloned().collect()).unwrap());
 
         let mut triangulation = Triangulation::from_initial_segment((&v5, &v6));
-        procedures::vertices::include(
+        triangulation_procedures::vertices::include(
             &mut triangulation,
             vertices.iter().cloned().collect(),
             &vec![Rc::clone(&s1)].iter().cloned().collect(),
@@ -428,7 +439,7 @@ mod include_vertices {
         for t in expected_triangles.iter() {
             assert!(triangles.contains(t));
         }
-    }
+    } /* end - sample_3 */
 } /* end - vertices inclusion */
 
 #[cfg(test)]

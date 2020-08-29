@@ -2,7 +2,7 @@ use crate::elements::{edge::*, polyline::*, triangle::*, vertex::*};
 use crate::planar::triangulation::*;
 use crate::properties::{continence::*, orientation::*};
 
-use crate::planar::procedures;
+use crate::planar::triangulation_procedures;
 
 use std::collections::HashSet;
 use std::rc::Rc;
@@ -93,13 +93,13 @@ pub fn include(
     let new_segment_constraint: HashSet<Rc<Edge>> =
         vec![Rc::clone(&segment)].iter().cloned().collect();
 
-    procedures::boundary::include(
+    triangulation_procedures::boundary::include(
         &mut segment_triangulation,
         &triangles_boundary,
         &new_segment_constraint,
     );
 
-    procedures::vertices::include(
+    triangulation_procedures::vertices::include(
         &mut segment_triangulation,
         conflicting_vertices.iter().cloned().collect(),
         &new_segment_constraint,
@@ -152,7 +152,7 @@ mod include_segment {
         let s1 = Rc::new(Edge::new(&v5, &v6));
 
         let mut triangulation = Triangulation::from_initial_segment((&v1, &v2));
-        procedures::vertices::include(
+        triangulation_procedures::vertices::include(
             &mut triangulation,
             vertices.iter().cloned().collect(),
             &HashSet::new(),
@@ -160,7 +160,7 @@ mod include_segment {
             &HashSet::new(),
         );
 
-        procedures::segment::include(&mut triangulation, &s1, &HashSet::new());
+        triangulation_procedures::segment::include(&mut triangulation, &s1, &HashSet::new());
 
         for v in vertices.iter() {
             assert!(triangulation.vertices().contains(v));
@@ -222,7 +222,7 @@ mod include_segment {
         let s1 = Rc::new(Edge::new(&v11, &v12));
 
         let mut triangulation = Triangulation::from_initial_segment((&v1, &v2));
-        procedures::vertices::include(
+        triangulation_procedures::vertices::include(
             &mut triangulation,
             vertices.iter().cloned().collect(),
             &HashSet::new(),
@@ -230,7 +230,7 @@ mod include_segment {
             &HashSet::new(),
         );
         assert_eq!(triangulation.vertices().len(), 8);
-        procedures::segment::include(&mut triangulation, &s1, &HashSet::new());
+        triangulation_procedures::segment::include(&mut triangulation, &s1, &HashSet::new());
 
         for v in vertices.iter() {
             assert!(triangulation.vertices().contains(v));
@@ -273,7 +273,7 @@ mod include_segment {
         let s2 = Rc::new(Edge::new(&v11, &v12));
 
         let mut triangulation = Triangulation::from_initial_segment((&v1, &v2));
-        procedures::vertices::include(
+        triangulation_procedures::vertices::include(
             &mut triangulation,
             vertices.iter().cloned().collect(),
             &HashSet::new(),
@@ -281,7 +281,7 @@ mod include_segment {
             &HashSet::new(),
         );
         assert_eq!(triangulation.vertices().len(), 7);
-        procedures::segment::include(&mut triangulation, &s1, &HashSet::new());
+        triangulation_procedures::segment::include(&mut triangulation, &s1, &HashSet::new());
         assert_eq!(triangulation.vertices().len(), 9);
         assert!(triangulation.edges().contains(&s1));
         assert!(triangulation.vertices().contains(&v8));
@@ -290,7 +290,7 @@ mod include_segment {
             assert!(triangulation.vertices().contains(v));
         }
 
-        procedures::segment::include(
+        triangulation_procedures::segment::include(
             &mut triangulation,
             &s2,
             &vec![Rc::clone(&s1)].iter().cloned().collect(),
