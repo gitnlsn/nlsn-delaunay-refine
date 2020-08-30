@@ -15,7 +15,9 @@
 </p>
 <p align="center" >
 
-<img src="https://travis-ci.org/nelsonatgithub/nlsn-delaunay-refine.svg?branch=dev" />
+<a href="https://travis-ci.org/github/nelsonatgithub/nlsn-delaunay-refine">
+  <img src="https://travis-ci.org/nelsonatgithub/nlsn-delaunay-refine.svg?branch=dev" />
+</a>
 
 <a href="https://codecov.io/gh/nelsonatgithub/nlsn-delaunay-refine">
   <img src="https://codecov.io/gh/nelsonatgithub/nlsn-delaunay-refine/branch/dev/graph/badge.svg" />
