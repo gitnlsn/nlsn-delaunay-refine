@@ -1,4 +1,4 @@
 pub struct RefineParams {
-    pub min_area: f64,
-    pub feature_size: f64,
+    pub max_area: f64,
+    pub quality_ratio: f64,
 }

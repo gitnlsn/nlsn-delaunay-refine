@@ -1,14 +1,12 @@
 use crate::elements::{edge::*, polyline::*, triangle::*, vertex::*};
-use crate::planar::{triangulation::*, triangulation_procedures, triangulator::*};
+use crate::planar::{triangulation::*, triangulation_procedures};
 use crate::properties::continence::*;
 
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 /**
- * For each encroached segment in segment_constraints,
- * the segment and its subsegments will be split until none is encroached.
- * Returns a mapping of initially encroached segments and its subsegments.
+ * Find encroached segments and unencroaches them by spliting segments
  */
 pub fn unencroach(
     triangulation: &mut Triangulation,
@@ -29,57 +27,14 @@ pub fn unencroach(
         let encroached_edge = Rc::clone(encroach_map.keys().next().unwrap());
         let mut encroaching_vertices = encroach_map.remove(&encroached_edge).unwrap();
 
-        let mut new_edges: HashSet<Rc<Edge>> = HashSet::new();
-        let mut pending_edges: Vec<Rc<Edge>> = Vec::new();
-
-        pending_edges.push(Rc::clone(&encroached_edge));
-
-        while !pending_edges.is_empty() {
-            let pending_edge = pending_edges.pop().unwrap();
-
-            let (h1, h2) = split_segment(
-                triangulation,
-                &pending_edge,
-                segment_contraints,
-                boundary,
-                holes,
-            );
-
-            let mut is_h1_encroached = false;
-            let mut is_h2_encroached = false;
-
-            for v in encroaching_vertices
-                .iter()
-                .cloned()
-                .collect::<HashSet<Rc<Vertex>>>()
-                .iter()
-            {
-                let mut v_encroaches_any = false;
-                if h1.encroach(&v) == Continence::Inside {
-                    is_h1_encroached = true;
-                    v_encroaches_any = true;
-                }
-                if h2.encroach(&v) == Continence::Inside {
-                    is_h2_encroached = true;
-                    v_encroaches_any = true;
-                }
-                if !v_encroaches_any {
-                    encroaching_vertices.remove(v);
-                }
-            }
-
-            if is_h1_encroached {
-                pending_edges.push(h1);
-            } else {
-                new_edges.insert(h1);
-            }
-
-            if is_h2_encroached {
-                pending_edges.push(h2);
-            } else {
-                new_edges.insert(h2);
-            }
-        } /* end - for pending edges */
+        let new_edges = unencroach_segment(
+            triangulation,
+            &encroached_edge,
+            &mut encroaching_vertices,
+            segment_contraints,
+            boundary,
+            holes,
+        );
 
         split_map.insert(Rc::clone(&encroached_edge), new_edges);
     }
@@ -88,10 +43,77 @@ pub fn unencroach(
 }
 
 /**
+ * Splits the segment and its subsegments until none is encroached.
+ * Returns new subsegments.
+ */
+pub fn unencroach_segment(
+    triangulation: &mut Triangulation,
+    encroached_edge: &Rc<Edge>,
+    encroaching_vertices: &mut HashSet<Rc<Vertex>>,
+    segment_contraints: &HashSet<Rc<Edge>>,
+    boundary: &Option<Rc<Polyline>>,
+    holes: &HashSet<Rc<Polyline>>,
+) -> HashSet<Rc<Edge>> {
+    let mut new_edges: HashSet<Rc<Edge>> = HashSet::new();
+    let mut pending_edges: Vec<Rc<Edge>> = Vec::new();
+
+    pending_edges.push(Rc::clone(&encroached_edge));
+
+    while !pending_edges.is_empty() {
+        let pending_edge = pending_edges.pop().unwrap();
+
+        let (h1, h2) = split_segment(
+            triangulation,
+            &pending_edge,
+            segment_contraints,
+            boundary,
+            holes,
+        );
+
+        let mut is_h1_encroached = false;
+        let mut is_h2_encroached = false;
+
+        for v in encroaching_vertices
+            .iter()
+            .cloned()
+            .collect::<HashSet<Rc<Vertex>>>()
+            .iter()
+        {
+            let mut v_encroaches_any = false;
+            if h1.encroach(&v) == Continence::Inside {
+                is_h1_encroached = true;
+                v_encroaches_any = true;
+            }
+            if h2.encroach(&v) == Continence::Inside {
+                is_h2_encroached = true;
+                v_encroaches_any = true;
+            }
+            if !v_encroaches_any {
+                encroaching_vertices.remove(v);
+            }
+        }
+
+        if is_h1_encroached {
+            pending_edges.push(h1);
+        } else {
+            new_edges.insert(h1);
+        }
+
+        if is_h2_encroached {
+            pending_edges.push(h2);
+        } else {
+            new_edges.insert(h2);
+        }
+    } /* end - for pending edges */
+
+    return new_edges;
+} /* end - unencroach_segment */
+
+/**
  * Populates encroach_map with encroachments of segments against a collection of vertices.
  * A vertex will be copied to more than a collection if it is encroached more than once.
  */
-fn distribute_encroachments(
+pub fn distribute_encroachments(
     segments: &HashSet<Rc<Edge>>,
     vertices: &HashSet<Rc<Vertex>>,
     encroach_map: &mut HashMap<Rc<Edge>, HashSet<Rc<Vertex>>>,

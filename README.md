@@ -43,7 +43,7 @@ The choice for `Rust` is due to its portability in sereral rust contexts and its
 
     - [x] 2D Delaunay Triangulation
     - [x] publishing release to crates.io
-    - [ ] 2D Delaunay Refinement
+    - [x] 2D Delaunay Refinement
     - [ ] review User Programming Interface
 
     - [ ] 3D Delaunay Triangulation
@@ -51,11 +51,11 @@ The choice for `Rust` is due to its portability in sereral rust contexts and its
 
 # Features
 
-- Standard Delaunay Triangulation
 - Incremental Vertex Insertion
-- Decremental Vertex Deletion
+- Segment Constraints
 - Holes
-- Refinement (*in progress*)
+- Boudanry
+- Refinement
 - Tetrahedralization (*in progress*)
 
 # API

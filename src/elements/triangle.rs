@@ -85,7 +85,7 @@ impl Triangle {
         return circumcenter(&self.v1, &self.v2, &self.v3);
     }
 
-    pub fn quality_ratio(&self) -> f64 {
+    pub fn quality(&self) -> f64 {
         /*
             Let a,b,c be the sides of a triangle, and A its area.
             Then radius is given by:
@@ -255,25 +255,46 @@ mod quality_ratio {
     use super::*;
 
     #[test]
-    fn test_quality_equilateral() {
+    fn sample_1() {
+        /* 
+            Test case: equilateral triangle
+         */
         let v1 = Rc::new(Vertex::new(0.0, 0.0));
         let v2 = Rc::new(Vertex::new(1.0, 0.0));
         let v3 = Rc::new(Vertex::new(0.5, 0.86602540378));
 
         let triangle = Triangle::new(&v1, &v2, &v3);
-        let ratio = triangle.quality_ratio();
+        let ratio = triangle.quality();
 
         assert!((ratio - 0.5773502691903656).abs() < 0.00000001);
     }
 
     #[test]
-    fn test_quality_isosceles_rectangle() {
+    fn sample_2() {
+        /* 
+            Test case: rectangle triangle
+         */
+        let v1 = Rc::new(Vertex::new(0.0, 0.0));
+        let v2 = Rc::new(Vertex::new(0.5, 0.0));
+        let v3 = Rc::new(Vertex::new(0.5, 0.28867513459481287));
+
+        let triangle = Triangle::new(&v1, &v2, &v3);
+        let ratio = triangle.quality();
+
+        assert!((ratio - 1.0).abs() < 0.00000001);
+    }
+
+    #[test]
+    fn sample_3() {
+        /* 
+            Test case: isosceles triangle
+         */
         let v1 = Rc::new(Vertex::new(0.0, 0.0));
         let v2 = Rc::new(Vertex::new(1.0, 0.0));
         let v3 = Rc::new(Vertex::new(1.0, 1.0));
 
         let triangle = Triangle::new(&v1, &v2, &v3);
-        let ratio = triangle.quality_ratio();
+        let ratio = triangle.quality();
 
         assert!((ratio - 0.7071067811865476).abs() < 0.00000001);
     }
