@@ -3,7 +3,7 @@
 // ================= //
 
 /* Elementary geometric elements */
-mod elements {
+pub mod elements {
     pub mod bounding_box;
     pub mod edge;
     pub mod polyline;
@@ -12,7 +12,7 @@ mod elements {
 }
 
 /* Geometric Behaviour/properties implementation */
-mod properties {
+pub mod properties {
     pub mod angle;
     pub mod area;
     pub mod circumcenter;
@@ -27,7 +27,7 @@ mod properties {
 }
 
 /* Data structure that resumes lib main output */
-mod planar {
+pub mod planar {
     pub mod refine_params;
     pub mod triangulation;
     pub mod triangulation_data;
@@ -51,10 +51,12 @@ pub use crate::elements::{
     edge::Edge,
     polyline::Polyline,
     triangle::Triangle,
-    vertex::Vertex
+    vertex::Vertex,
+    bounding_box::BoundingBox,
 };
 
 pub use crate::planar::{
     triangulation::Triangulation, 
-    triangulator::Triangulator
+    triangulator::Triangulator,
+    refine_params::RefineParams,
 };
