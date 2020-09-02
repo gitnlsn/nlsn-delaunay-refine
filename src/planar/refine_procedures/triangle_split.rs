@@ -13,7 +13,7 @@ use std::rc::Rc;
  * Determines if the triangle is irregular according to quality ratio
  */
 fn is_irregular_triangle(triangle: &Triangle, params: &RefineParams) -> bool {
-    let this_quality = triangle.quality();
+    let this_quality = triangle.quality().unwrap();
     let no_quality = float_cmp::approx_eq!(
         f64,
         this_quality,
@@ -28,7 +28,7 @@ fn is_irregular_triangle(triangle: &Triangle, params: &RefineParams) -> bool {
  * Determines if the triangle is larger than threshould
  */
 fn is_large_triangle(triangle: &Triangle, params: &RefineParams) -> bool {
-    let this_area = triangle.area();
+    let this_area = triangle.area().unwrap();
     let greater_area: bool = match params.max_area {
         Some(max_area) => {
             float_cmp::approx_eq!(f64, this_area, max_area, epsilon = 1.0E-14f64)
@@ -94,7 +94,7 @@ pub fn split_irregular(
         //     "\nSplitting Triangle (Total: {} + {}) - {}",
         //     irregular_triangles.len(),
         //     large_triangles.len(),
-        //     triangle.quality()
+        //     triangle.quality().unwrap()
         // );
 
         // println!("\nTriangles");
@@ -110,7 +110,7 @@ pub fn split_irregular(
             holes,
         ) {
             Ok((included_triangles, removed_triangles)) => {
-                for new_triangle in included_triangles.iter() {
+                for new_triangle in included_triangles.iter().filter(|t| !t.is_ghost()) {
                     if is_irregular_triangle(new_triangle, params) {
                         irregular_triangles.insert(Rc::clone(new_triangle));
                         continue;
@@ -149,7 +149,7 @@ pub fn split_irregular(
                         segment_contraints.insert(Rc::clone(subsegment));
                     }
 
-                    for new_triangle in included_triangles.iter() {
+                    for new_triangle in included_triangles.iter().filter(|t| !t.is_ghost()) {
                         if is_irregular_triangle(new_triangle, params) {
                             irregular_triangles.insert(Rc::clone(new_triangle));
                             continue;
@@ -207,13 +207,11 @@ fn try_circumcenter_insertion(
             holes,
         );
 
-    let encroachments: HashSet<Rc<Edge>> = Polyline::triangles_hull(&included_triangles)
-        .unwrap()
-        .into_edges()
+    let encroachments: HashSet<Rc<Edge>> = included_triangles
         .iter()
-        .filter(|&e| segment_constraints.contains(e) || segment_constraints.contains(&e.opposite()))
+        .map(|t| t.opposite_edge(&circumcenter).unwrap())
+        .filter(|e| segment_constraints.contains(e) || segment_constraints.contains(&e.opposite()))
         .filter(|e| e.encroach(&circumcenter) == Continence::Inside)
-        .cloned()
         .collect();
 
     if !encroachments.is_empty() {

@@ -24,35 +24,6 @@ impl PartialEq for Triangle {
 
 impl Eq for Triangle {}
 
-impl PartialOrd for Triangle {
-    fn partial_cmp(&self, other: &Triangle) -> Option<Ordering> {
-        let self_quality = self.quality();
-        let other_quality = other.quality();
-        if float_cmp::approx_eq!(f64, self_quality, other_quality, epsilon = 1.0E-14f64) {
-            return Some(Ordering::Equal);
-        }
-        if self_quality > other_quality {
-            return Some(Ordering::Greater);
-        } else {
-            return Some(Ordering::Less);
-        }
-    }
-}
-impl Ord for Triangle {
-    fn cmp(&self, other: &Triangle) -> Ordering {
-        let self_quality = self.quality();
-        let other_quality = other.quality();
-        if float_cmp::approx_eq!(f64, self_quality, other_quality, epsilon = 1.0E-14f64) {
-            return Ordering::Equal;
-        }
-        if self_quality > other_quality {
-            return Ordering::Greater;
-        } else {
-            return Ordering::Less;
-        }
-    }
-}
-
 impl fmt::Display for Triangle {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         return write!(f, "({} - {} - {})", self.v1, self.v2, self.v3);
@@ -77,11 +48,11 @@ impl Triangle {
         self.v1.is_ghost || self.v2.is_ghost || self.v3.is_ghost
     }
 
-    pub fn area(&self) -> f64 {
+    pub fn area(&self) -> Option<f64> {
         if self.is_ghost() {
-            return 0.0;
+            return None;
         }
-        return area_triangle(&self.v1, &self.v2, &self.v3);
+        return Some(area_triangle(&self.v1, &self.v2, &self.v3));
     }
 
     pub fn encircles(&self, vertex: &Vertex) -> Continence {
@@ -115,7 +86,11 @@ impl Triangle {
         return circumcenter(&self.v1, &self.v2, &self.v3);
     }
 
-    pub fn quality(&self) -> f64 {
+    pub fn quality(&self) -> Option<f64> {
+        if self.is_ghost() {
+            return None;
+        }
+
         /*
             Let a,b,c be the sides of a triangle, and A its area.
             Then radius is given by:
@@ -130,14 +105,14 @@ impl Triangle {
         let b = distance(&self.v2, &self.v3);
         let c = distance(&self.v3, &self.v1);
 
-        let area = self.area();
+        let area = self.area().unwrap();
 
         if a <= b && a <= c {
-            return b * c / (4.0 * area);
+            return Some(b * c / (4.0 * area));
         } else if b <= c {
-            return a * c / (4.0 * area);
+            return Some(a * c / (4.0 * area));
         } else {
-            return a * b / (4.0 * area);
+            return Some(a * b / (4.0 * area));
         }
     }
 
@@ -179,6 +154,18 @@ impl Triangle {
             return Some(Rc::clone(&self.v1));
         } else if edge == &e3 {
             return Some(Rc::clone(&self.v2));
+        } else {
+            return None;
+        }
+    }
+
+    pub fn opposite_edge(&self, vertex: &Rc<Vertex>) -> Option<Rc<Edge>> {
+        if vertex == &self.v1 {
+            return Some(Rc::new(Edge::new(&self.v2, &self.v3)));
+        } else if vertex == &self.v2 {
+            return Some(Rc::new(Edge::new(&self.v3, &self.v1)));
+        } else if vertex == &self.v3 {
+            return Some(Rc::new(Edge::new(&self.v1, &self.v2)));
         } else {
             return None;
         }
@@ -294,7 +281,7 @@ mod quality_ratio {
         let v3 = Rc::new(Vertex::new(0.5, 0.86602540378));
 
         let triangle = Triangle::new(&v1, &v2, &v3);
-        let ratio = triangle.quality();
+        let ratio = triangle.quality().unwrap();
 
         assert!((ratio - 0.5773502691903656).abs() < 0.00000001);
     }
@@ -309,7 +296,7 @@ mod quality_ratio {
         let v3 = Rc::new(Vertex::new(0.5, 0.28867513459481287));
 
         let triangle = Triangle::new(&v1, &v2, &v3);
-        let ratio = triangle.quality();
+        let ratio = triangle.quality().unwrap();
 
         assert!((ratio - 1.0).abs() < 0.00000001);
     }
@@ -324,7 +311,7 @@ mod quality_ratio {
         let v3 = Rc::new(Vertex::new(1.0, 1.0));
 
         let triangle = Triangle::new(&v1, &v2, &v3);
-        let ratio = triangle.quality();
+        let ratio = triangle.quality().unwrap();
 
         assert!((ratio - 0.7071067811865476).abs() < 0.00000001);
     }

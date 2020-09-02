@@ -100,7 +100,7 @@ pub fn unencroach_segment(
         included_triangles = included_triangles
             .iter()
             .chain(new_triangles.iter())
-            .filter(|&t| old_triangles.contains(t))
+            .filter(|&t| !old_triangles.contains(t))
             .cloned()
             .collect();
 

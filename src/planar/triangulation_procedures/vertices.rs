@@ -215,7 +215,13 @@ fn distribute_conflicts(
         vertices.push(pending_vertex);
     }
     if !distributed_conflicts.is_empty() {
-        conflict_map.insert(Rc::clone(&triangle), distributed_conflicts);
+        if conflict_map.contains_key(triangle) {
+            let existing_conflicts: &mut Vec<Rc<Vertex>> = conflict_map.get_mut(triangle).unwrap();
+
+            existing_conflicts.append(&mut distributed_conflicts);
+        } else {
+            conflict_map.insert(Rc::clone(triangle), distributed_conflicts);
+        }
     }
 } /* end - distribute conflicts  */
 
@@ -251,32 +257,7 @@ pub fn distribute_conflicts_over_triangulation(
             };
         }
 
-        let mut distributed_conflicts: Vec<Rc<Vertex>> = Vec::new();
-
-        for _ in 0..vertices.len() {
-            let pending_vertex: Rc<Vertex> = vertices.remove(0);
-            let has_conflict = next_triangle.encircles(&pending_vertex) == Continence::Inside;
-
-            let may_insert = may_insert_triangle(&next_triangle, &pending_vertex, boundary, holes);
-
-            if has_conflict && may_insert {
-                distributed_conflicts.push(pending_vertex);
-                continue;
-            }
-
-            vertices.push(pending_vertex);
-        }
-
-        if !distributed_conflicts.is_empty() {
-            if conflict_map.contains_key(&next_triangle) {
-                let existing_conflicts: &mut Vec<Rc<Vertex>> =
-                    conflict_map.get_mut(&next_triangle).unwrap();
-
-                existing_conflicts.append(&mut distributed_conflicts);
-            } else {
-                conflict_map.insert(Rc::clone(&next_triangle), distributed_conflicts);
-            }
-        }
+        distribute_conflicts(&next_triangle, conflict_map, vertices, boundary, holes);
     }
 }
 
@@ -701,7 +682,10 @@ mod distribute_conflicts_over_triangulation {
             );
             assert_eq!(conflict_map.len(), 1);
 
-            assert_eq!(conflict_map.keys().next().unwrap(), &expected_conflicting_triangle);
+            assert_eq!(
+                conflict_map.keys().next().unwrap(),
+                &expected_conflicting_triangle
+            );
         }
     }
 }
