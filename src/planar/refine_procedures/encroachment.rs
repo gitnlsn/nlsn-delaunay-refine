@@ -13,7 +13,14 @@ pub fn unencroach(
     segment_contraints: &HashSet<Rc<Edge>>,
     boundary: &Option<Rc<Polyline>>,
     holes: &HashSet<Rc<Polyline>>,
-) -> HashMap<Rc<Edge>, HashSet<Rc<Edge>>> {
+) -> (
+    HashMap<Rc<Edge>, HashSet<Rc<Edge>>>,
+    HashSet<Rc<Triangle>>,
+    HashSet<Rc<Triangle>>,
+) {
+    let mut included_triangles: HashSet<Rc<Triangle>> = HashSet::new();
+    let mut removed_triangles: HashSet<Rc<Triangle>> = HashSet::new();
+
     let mut split_map: HashMap<Rc<Edge>, HashSet<Rc<Edge>>> = HashMap::new();
     let mut encroach_map: HashMap<Rc<Edge>, HashSet<Rc<Vertex>>> = HashMap::new();
 
@@ -27,7 +34,7 @@ pub fn unencroach(
         let encroached_edge = Rc::clone(encroach_map.keys().next().unwrap());
         let mut encroaching_vertices = encroach_map.remove(&encroached_edge).unwrap();
 
-        let new_edges = unencroach_segment(
+        let (new_edges, new_triangles, old_triangles) = unencroach_segment(
             triangulation,
             &encroached_edge,
             &mut encroaching_vertices,
@@ -37,9 +44,22 @@ pub fn unencroach(
         );
 
         split_map.insert(Rc::clone(&encroached_edge), new_edges);
+
+        included_triangles = included_triangles
+            .iter()
+            .chain(new_triangles.iter())
+            .filter(|&t| old_triangles.contains(t))
+            .cloned()
+            .collect();
+
+        removed_triangles = removed_triangles
+            .iter()
+            .chain(old_triangles.iter())
+            .cloned()
+            .collect();
     }
 
-    return split_map;
+    return (split_map, included_triangles, removed_triangles);
 }
 
 /**
@@ -53,7 +73,14 @@ pub fn unencroach_segment(
     segment_contraints: &HashSet<Rc<Edge>>,
     boundary: &Option<Rc<Polyline>>,
     holes: &HashSet<Rc<Polyline>>,
-) -> HashSet<Rc<Edge>> {
+) -> (
+    HashSet<Rc<Edge>>,
+    HashSet<Rc<Triangle>>,
+    HashSet<Rc<Triangle>>,
+) {
+    let mut included_triangles: HashSet<Rc<Triangle>> = HashSet::new();
+    let mut removed_triangles: HashSet<Rc<Triangle>> = HashSet::new();
+
     let mut new_edges: HashSet<Rc<Edge>> = HashSet::new();
     let mut pending_edges: Vec<Rc<Edge>> = Vec::new();
 
@@ -62,13 +89,26 @@ pub fn unencroach_segment(
     while !pending_edges.is_empty() {
         let pending_edge = pending_edges.pop().unwrap();
 
-        let (h1, h2) = split_segment(
+        let (h1, h2, new_triangles, old_triangles) = split_segment(
             triangulation,
             &pending_edge,
             segment_contraints,
             boundary,
             holes,
         );
+
+        included_triangles = included_triangles
+            .iter()
+            .chain(new_triangles.iter())
+            .filter(|&t| old_triangles.contains(t))
+            .cloned()
+            .collect();
+
+        removed_triangles = removed_triangles
+            .iter()
+            .chain(old_triangles.iter())
+            .cloned()
+            .collect();
 
         let mut is_h1_encroached = false;
         let mut is_h2_encroached = false;
@@ -106,7 +146,7 @@ pub fn unencroach_segment(
         }
     } /* end - for pending edges */
 
-    return new_edges;
+    return (new_edges, included_triangles, removed_triangles);
 } /* end - unencroach_segment */
 
 /**
@@ -142,7 +182,12 @@ fn split_segment(
     segment_constraints: &HashSet<Rc<Edge>>,
     boundary: &Option<Rc<Polyline>>,
     holes: &HashSet<Rc<Polyline>>,
-) -> (Rc<Edge>, Rc<Edge>) {
+) -> (
+    Rc<Edge>,
+    Rc<Edge>,
+    HashSet<Rc<Triangle>>,
+    HashSet<Rc<Triangle>>,
+) {
     let segment_constraints: HashSet<Rc<Edge>> = segment_constraints
         .iter()
         .filter(|&e| e != segment && e != &Rc::new(segment.opposite()))
@@ -153,14 +198,14 @@ fn split_segment(
     let half_1 = Rc::new(Edge::new(&segment.v1, &segment_midpoint));
     let half_2 = Rc::new(Edge::new(&segment_midpoint, &segment.v2));
 
-    triangulation_procedures::vertices::include(
+    let (included_triangles, removed_triangles) = triangulation_procedures::vertices::include(
         triangulation,
         vec![segment_midpoint],
         &segment_constraints,
         boundary,
         holes,
     );
-    return (half_1, half_2);
+    return (half_1, half_2, included_triangles, removed_triangles);
 } /* end - split_segment */
 
 #[cfg(test)]
@@ -316,7 +361,7 @@ mod split {
         let splitable_segment = Rc::new(Edge::new(&v2, &v3));
         let midpoint = Rc::new(splitable_segment.midpoint());
 
-        let (h1, h2) = split_segment(
+        let (h1, h2, included_triangles, removed_triangles) = split_segment(
             &mut triangulation,
             &splitable_segment,
             &HashSet::new(),
@@ -377,7 +422,7 @@ mod split {
         /* Inserts vertex at hole segment */
         let splittable_edge: Rc<Edge> = Rc::new(Edge::new(&v6, &v7));
         let midpoint = Rc::new(splittable_edge.midpoint());
-        let (h1, h2) = split_segment(
+        let (h1, h2, included_triangles, removed_triangles) = split_segment(
             &mut triangulation,
             &splittable_edge,
             &HashSet::new(),
@@ -466,7 +511,7 @@ mod unencroach {
         );
 
         /* unencroach */
-        let mapping = unencroach(
+        let (mapping, included_triangles, removed_triangles) = unencroach(
             &mut triangulation,
             &boundary.into_edges().iter().cloned().collect(),
             &Some(Rc::clone(&boundary)),
@@ -519,7 +564,7 @@ mod unencroach {
         );
 
         /* unencroach */
-        let mapping = unencroach(
+        let (mapping, included_triangles, removed_triangles) = unencroach(
             &mut triangulation,
             &boundary.into_edges().iter().cloned().collect(),
             &Some(Rc::clone(&boundary)),

@@ -255,12 +255,13 @@ impl Triangulator {
             .chain(self.segments.iter().cloned())
             .collect();
 
-        let segments_splitting = refine_procedures::encroachment::unencroach(
-            &mut self.triangulation.borrow_mut(),
-            &segment_constraints,
-            &Some(Rc::clone(&self.boundary)),
-            &self.holes,
-        );
+        let (segments_splitting, included_triangles, removed_triangles) =
+            refine_procedures::encroachment::unencroach(
+                &mut self.triangulation.borrow_mut(),
+                &segment_constraints,
+                &Some(Rc::clone(&self.boundary)),
+                &self.holes,
+            );
 
         segment_constraints = segment_constraints
             .iter()
@@ -275,37 +276,26 @@ impl Triangulator {
             .cloned()
             .collect();
 
-        loop {
-            let mut irregular_triangles = refine_procedures::triangle_split::find_irregular(
-                &mut self.triangulation.borrow_mut(),
-                &params,
-            );
+        let segments_splitting = refine_procedures::triangle_split::split_irregular(
+            &mut self.triangulation.borrow_mut(),
+            &params,
+            &segment_constraints,
+            &Some(Rc::clone(&self.boundary)),
+            &self.holes,
+        );
 
-            if irregular_triangles.is_empty() {
-                break;
-            }
-
-            let segments_splitting = refine_procedures::triangle_split::split_irregular(
-                &mut self.triangulation.borrow_mut(),
-                &mut irregular_triangles,
-                &segment_constraints,
-                &Some(Rc::clone(&self.boundary)),
-                &self.holes,
-            );
-
-            segment_constraints = segment_constraints
-                .iter()
-                .filter(|&s| {
-                    segments_splitting
-                        .keys()
-                        .cloned()
-                        .collect::<HashSet<Rc<Edge>>>()
-                        .contains(s)
-                })
-                .chain(segments_splitting.values().flatten())
-                .cloned()
-                .collect();
-        }
+        segment_constraints = segment_constraints
+            .iter()
+            .filter(|&s| {
+                segments_splitting
+                    .values()
+                    .cloned()
+                    .collect::<HashSet<Rc<Edge>>>()
+                    .contains(s)
+            })
+            .chain(segments_splitting.keys())
+            .cloned()
+            .collect();
 
         return self;
     }
@@ -818,11 +808,6 @@ mod insert_segments {
 
         let mut triangulator = Triangulator::new(&boundary);
         let result = triangulator.insert_segments(&segments);
-        if let Err(panic_edges) = &result {
-            for edge in panic_edges.iter() {
-                println!("{}", edge);
-            }
-        }
         assert!(result.is_ok());
 
         assert!(triangulator.segments.contains(&e1));

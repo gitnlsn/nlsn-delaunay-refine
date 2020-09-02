@@ -7,9 +7,6 @@ use std::rc::Rc;
 
 /**
  * Inserts vertices in the triangulation.
- * Implements Bowyer-Watson incremental insersion using conflict map.
- * Insersion will be avoided the possible triangle violates boundary
- * hole or segment constraints.
  */
 pub fn include(
     triangulation: &mut Triangulation,
@@ -17,11 +14,11 @@ pub fn include(
     segment_constraints: &HashSet<Rc<Edge>>,
     boundary: &Option<Rc<Polyline>>,
     holes: &HashSet<Rc<Polyline>>,
-) {
+) -> (HashSet<Rc<Triangle>>, HashSet<Rc<Triangle>>) {
     let existing_vertices: HashSet<Rc<Vertex>> = triangulation.vertices();
     let mut vertices: Vec<Rc<Vertex>> = vertices
         .iter()
-        .filter(|&v| !existing_vertices.contains(v))
+        .filter(|&v| !existing_vertices.contains(v)) /* filters existing vertices */
         .cloned()
         .collect();
 
@@ -38,6 +35,32 @@ pub fn include(
             holes,
         );
     }
+
+    return solve_conflicts(
+        triangulation,
+        &mut conflict_map,
+        &mut vertices,
+        segment_constraints,
+        boundary,
+        holes,
+    );
+} /* end - include vertices method */
+
+/**
+ * Implements Bowyer-Watson incremental insersion using conflict map.
+ * Insersion will be avoided the possible triangle violates boundary
+ * hole or segment constraints.
+ */
+pub fn solve_conflicts(
+    triangulation: &mut Triangulation,
+    conflict_map: &mut HashMap<Rc<Triangle>, Vec<Rc<Vertex>>>,
+    remaining_vertices: &mut Vec<Rc<Vertex>>,
+    segment_constraints: &HashSet<Rc<Edge>>,
+    boundary: &Option<Rc<Polyline>>,
+    holes: &HashSet<Rc<Polyline>>,
+) -> (HashSet<Rc<Triangle>>, HashSet<Rc<Triangle>>) {
+    let mut included_triangles: HashSet<Rc<Triangle>> = HashSet::new();
+    let mut removed_triangles: HashSet<Rc<Triangle>> = HashSet::new();
 
     while !conflict_map.is_empty() {
         // Uncommet to debug
@@ -64,14 +87,15 @@ pub fn include(
         let conflict_vertex: Rc<Vertex> = conflicting_vertices.pop().unwrap();
 
         triangulation.remove_triangle(&next_conflicting_triangle);
+        removed_triangles.insert(Rc::clone(&next_conflicting_triangle));
 
         let (e1, e2, e3) = next_conflicting_triangle.inner_edges();
 
         let mut pending_cavities: Vec<Rc<Edge>> = vec![e1, e2, e3];
 
         if !conflicting_vertices.is_empty() {
-            /* reinclude conflicts they remaining */
-            vertices.append(&mut conflicting_vertices);
+            /* reinclude conflicts */
+            remaining_vertices.append(&mut conflicting_vertices);
         }
 
         while !pending_cavities.is_empty() {
@@ -117,10 +141,12 @@ pub fn include(
 
             if is_conflicting && !is_constrained && may_insert {
                 triangulation.remove_triangle(&outer_triangle);
+                removed_triangles.insert(Rc::clone(&outer_triangle));
+
                 let (e12, e23, e31) = outer_triangle.inner_edges();
 
                 if let Some(mut conflicting_vertices) = conflict_map.remove(&outer_triangle) {
-                    vertices.append(&mut conflicting_vertices);
+                    remaining_vertices.append(&mut conflicting_vertices);
                 }
 
                 /* includes cavities */
@@ -136,44 +162,30 @@ pub fn include(
                 }
             } else {
                 /* Includes new triangle */
+                let new_triangle: Rc<Triangle>;
                 if edge.v1.is_ghost {
-                    let new_triangle = Rc::new(Triangle::new(&edge.v2, &conflict_vertex, &edge.v1));
-                    triangulation.include_triangle(&new_triangle);
-
-                    distribute_conflicts(
-                        &new_triangle,
-                        &mut conflict_map,
-                        &mut vertices,
-                        boundary,
-                        holes,
-                    );
+                    new_triangle = Rc::new(Triangle::new(&edge.v2, &conflict_vertex, &edge.v1));
                 } else if edge.v2.is_ghost {
-                    let new_triangle = Rc::new(Triangle::new(&conflict_vertex, &edge.v1, &edge.v2));
-                    triangulation.include_triangle(&new_triangle);
-
-                    distribute_conflicts(
-                        &new_triangle,
-                        &mut conflict_map,
-                        &mut vertices,
-                        boundary,
-                        holes,
-                    );
+                    new_triangle = Rc::new(Triangle::new(&conflict_vertex, &edge.v1, &edge.v2));
                 } else {
-                    let new_triangle = Rc::new(Triangle::new(&edge.v1, &edge.v2, &conflict_vertex));
-                    triangulation.include_triangle(&new_triangle);
-
-                    distribute_conflicts(
-                        &new_triangle,
-                        &mut conflict_map,
-                        &mut vertices,
-                        boundary,
-                        holes,
-                    );
+                    new_triangle = Rc::new(Triangle::new(&edge.v1, &edge.v2, &conflict_vertex));
                 }
+                triangulation.include_triangle(&new_triangle);
+                included_triangles.insert(Rc::clone(&new_triangle));
+
+                distribute_conflicts(
+                    &new_triangle,
+                    conflict_map,
+                    remaining_vertices,
+                    boundary,
+                    holes,
+                );
             }
         } /* end - while pending edges */
     } /* end - distributing vertices */
-} /* end - include vertices method */
+
+    return (included_triangles, removed_triangles);
+}
 
 /**
  * Includes into the conflit_map the conflicts between the given triangle
@@ -206,6 +218,67 @@ fn distribute_conflicts(
         conflict_map.insert(Rc::clone(&triangle), distributed_conflicts);
     }
 } /* end - distribute conflicts  */
+
+pub fn distribute_conflicts_over_triangulation(
+    triangulation: &mut Triangulation,
+    initial_triangle: Option<Rc<Triangle>>,
+    conflict_map: &mut HashMap<Rc<Triangle>, Vec<Rc<Vertex>>>,
+    vertices: &mut Vec<Rc<Vertex>>,
+    boundary: &Option<Rc<Polyline>>,
+    holes: &HashSet<Rc<Polyline>>,
+) {
+    let mut visited_triangles: HashSet<Rc<Triangle>> = HashSet::new();
+    let mut pending_triangles: Vec<Rc<Triangle>> = Vec::new();
+
+    if let Some(initial_triangle) = initial_triangle {
+        visited_triangles.insert(Rc::clone(&initial_triangle));
+        pending_triangles.push(Rc::clone(&initial_triangle));
+    } else {
+        let initial_triangle = triangulation.triangles.iter().next().unwrap();
+        visited_triangles.insert(Rc::clone(&initial_triangle));
+        pending_triangles.push(Rc::clone(&initial_triangle));
+    }
+
+    while !pending_triangles.is_empty() && !vertices.is_empty() {
+        let next_triangle = pending_triangles.pop().unwrap();
+        let (e1, e2, e3) = next_triangle.outer_edges();
+        for outer_edge in vec![e1, e2, e3].iter() {
+            if let Some(outer_triangle) = triangulation.adjacency.get(outer_edge) {
+                if !visited_triangles.contains(outer_triangle) && !outer_triangle.is_ghost() {
+                    pending_triangles.push(Rc::clone(outer_triangle));
+                    visited_triangles.insert(Rc::clone(outer_triangle));
+                }
+            };
+        }
+
+        let mut distributed_conflicts: Vec<Rc<Vertex>> = Vec::new();
+
+        for _ in 0..vertices.len() {
+            let pending_vertex: Rc<Vertex> = vertices.remove(0);
+            let has_conflict = next_triangle.encircles(&pending_vertex) == Continence::Inside;
+
+            let may_insert = may_insert_triangle(&next_triangle, &pending_vertex, boundary, holes);
+
+            if has_conflict && may_insert {
+                distributed_conflicts.push(pending_vertex);
+                continue;
+            }
+
+            vertices.push(pending_vertex);
+        }
+
+        if !distributed_conflicts.is_empty() {
+            if conflict_map.contains_key(&next_triangle) {
+                let existing_conflicts: &mut Vec<Rc<Vertex>> =
+                    conflict_map.get_mut(&next_triangle).unwrap();
+
+                existing_conflicts.append(&mut distributed_conflicts);
+            } else {
+                conflict_map.insert(Rc::clone(&next_triangle), distributed_conflicts);
+            }
+        }
+    }
+}
 
 /**
  * Evaluates if triangle is inside boudanry and outside holes
@@ -579,5 +652,56 @@ mod distribute_conflicts {
             );
             assert_eq!(conflict_map.len(), 1);
         }
-    } /* end - sample 1 */
+    } /* end - sample 2 */
 } /* end - distribute conflits tests */
+
+#[cfg(test)]
+mod distribute_conflicts_over_triangulation {
+    use super::*;
+
+    #[test]
+    fn sample_1() {
+        let sqrt_3: f64 = 1.7320508075688772;
+
+        let v1 = Rc::new(Vertex::new(0.0, 0.0));
+        let v2 = Rc::new(Vertex::new(2.0, 0.0));
+        let v3 = Rc::new(Vertex::new(4.0, 0.0));
+        let v4 = Rc::new(Vertex::new(6.0, 0.0));
+        let v5 = Rc::new(Vertex::new(5.0, sqrt_3));
+        let v6 = Rc::new(Vertex::new(3.0, sqrt_3));
+        let v7 = Rc::new(Vertex::new(1.0, sqrt_3));
+
+        let v8 = Rc::new(Vertex::new(5.2, sqrt_3 / 3.0));
+
+        let boundary = vec![
+            Rc::clone(&v1),
+            Rc::clone(&v2),
+            Rc::clone(&v3),
+            Rc::clone(&v4),
+            Rc::clone(&v5),
+            Rc::clone(&v6),
+            Rc::clone(&v7),
+        ];
+        let boundary = Rc::new(Polyline::new_closed(boundary).unwrap());
+
+        let mut triangulation = Triangulation::from_initial_segment((&v1, &v2));
+        triangulation_procedures::boundary::include(&mut triangulation, &boundary, &HashSet::new());
+
+        let triangles: HashSet<Rc<Triangle>> = triangulation.triangles.iter().cloned().collect();
+        let expected_conflicting_triangle = Rc::new(Triangle::new(&v3, &v4, &v5));
+        for t in triangles.iter() {
+            let mut conflict_map: HashMap<Rc<Triangle>, Vec<Rc<Vertex>>> = HashMap::new();
+            distribute_conflicts_over_triangulation(
+                &mut triangulation,
+                Some(Rc::clone(&t)),
+                &mut conflict_map,
+                &mut vec![Rc::clone(&v8)],
+                &Some(Rc::clone(&boundary)),
+                &HashSet::new(),
+            );
+            assert_eq!(conflict_map.len(), 1);
+
+            assert_eq!(conflict_map.keys().next().unwrap(), &expected_conflicting_triangle);
+        }
+    }
+}

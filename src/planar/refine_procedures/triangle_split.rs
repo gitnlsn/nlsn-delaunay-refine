@@ -4,35 +4,40 @@ use crate::planar::{
     triangulation_procedures,
 };
 
+use crate::properties::continence::*;
+
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 /**
- * Returns the list of irregular triangles.
- * A triangle is irregular is its quality ratio is greater or equal
- * to the expected quality. A mapping from its circumcenter is returned.
+ * Determines if the triangle is irregular according to quality ratio
  */
-pub fn find_irregular(
-    triangulation: &mut Triangulation,
-    params: &RefineParams,
-) -> HashMap<Rc<Vertex>, Rc<Triangle>> {
-    triangulation
-        .triangles
-        .iter()
-        .filter(|t| !t.is_ghost())
-        .filter(|t| {
-            let this_quality = t.quality();
-            let is_equal = float_cmp::approx_eq!(
-                f64,
-                this_quality,
-                params.quality_ratio,
-                epsilon = 1.0E-14f64
-            );
-            let is_greater = t.quality() >= params.quality_ratio;
-            return is_equal || is_greater;
-        })
-        .map(|t| (Rc::new(t.circumcenter().unwrap()), Rc::clone(t)))
-        .collect::<HashMap<Rc<Vertex>, Rc<Triangle>>>()
+fn is_irregular_triangle(triangle: &Triangle, params: &RefineParams) -> bool {
+    let this_quality = triangle.quality();
+    let no_quality = float_cmp::approx_eq!(
+        f64,
+        this_quality,
+        params.quality_ratio,
+        epsilon = 1.0E-14f64
+    ) || this_quality >= params.quality_ratio;
+
+    return no_quality;
+}
+
+/**
+ * Determines if the triangle is larger than threshould
+ */
+fn is_large_triangle(triangle: &Triangle, params: &RefineParams) -> bool {
+    let this_area = triangle.area();
+    let greater_area: bool = match params.max_area {
+        Some(max_area) => {
+            float_cmp::approx_eq!(f64, this_area, max_area, epsilon = 1.0E-14f64)
+                || this_area >= max_area
+        }
+        _ => false,
+    };
+
+    return greater_area;
 }
 
 /**
@@ -43,63 +48,187 @@ pub fn find_irregular(
  */
 pub fn split_irregular(
     triangulation: &mut Triangulation,
-    irregular_triangles: &mut HashMap<Rc<Vertex>, Rc<Triangle>>,
+    params: &RefineParams,
     segment_contraints: &HashSet<Rc<Edge>>,
     boundary: &Option<Rc<Polyline>>,
     holes: &HashSet<Rc<Polyline>>,
-) -> HashMap<Rc<Edge>, HashSet<Rc<Edge>>> {
-    let mut split_map: HashMap<Rc<Edge>, HashSet<Rc<Edge>>> = HashMap::new();
+) -> HashMap<Rc<Edge>, Rc<Edge>> {
+    let mut segment_contraints: HashSet<Rc<Edge>> = segment_contraints.iter().cloned().collect();
 
-    let mut encroach_map: HashMap<Rc<Edge>, HashSet<Rc<Vertex>>> = HashMap::new();
-    encroachment::distribute_encroachments(
-        segment_contraints,
-        &irregular_triangles
-            .keys()
-            .cloned()
-            .collect::<HashSet<Rc<Vertex>>>(),
-        &mut encroach_map,
+    let critical_triangles = triangulation
+        .triangles
+        .iter()
+        .filter(|t| !t.is_ghost())
+        .filter(|t| is_irregular_triangle(t, params) || is_large_triangle(t, params))
+        .cloned()
+        .collect::<HashSet<Rc<Triangle>>>();
+
+    let mut irregular_triangles: HashSet<Rc<Triangle>> = critical_triangles
+        .iter()
+        .filter(|t| is_irregular_triangle(t, params))
+        .cloned()
+        .collect();
+
+    let mut large_triangles: HashSet<Rc<Triangle>> = critical_triangles
+        .iter()
+        .filter(|t| is_large_triangle(t, params))
+        .cloned()
+        .collect();
+
+    let mut split_map: HashMap<Rc<Edge>, Rc<Edge>> = HashMap::new();
+
+    loop {
+        let triangle;
+        if let Some(irregular_triangle) = irregular_triangles.iter().next() {
+            triangle = Rc::clone(&irregular_triangle);
+            irregular_triangles.remove(&triangle);
+        } else if let Some(large_triangle) = large_triangles.iter().next() {
+            triangle = Rc::clone(&large_triangle);
+            large_triangles.remove(&triangle);
+        } else {
+            break;
+        }
+
+        // Uncomment to debug
+        // println!(
+        //     "\nSplitting Triangle (Total: {} + {}) - {}",
+        //     irregular_triangles.len(),
+        //     large_triangles.len(),
+        //     triangle.quality()
+        // );
+
+        // println!("\nTriangles");
+        // for t in triangulation.triangles.iter().filter(|t| !t.is_ghost()) {
+        //     println!("{}", t);
+        // }
+
+        match try_circumcenter_insertion(
+            triangulation,
+            &triangle,
+            &segment_contraints,
+            boundary,
+            holes,
+        ) {
+            Ok((included_triangles, removed_triangles)) => {
+                for new_triangle in included_triangles.iter() {
+                    if is_irregular_triangle(new_triangle, params) {
+                        irregular_triangles.insert(Rc::clone(new_triangle));
+                        continue;
+                    }
+                    if is_large_triangle(new_triangle, params) {
+                        large_triangles.insert(Rc::clone(new_triangle));
+                        continue;
+                    }
+                }
+                for old_triangle in removed_triangles.iter() {
+                    irregular_triangles.remove(old_triangle);
+                    large_triangles.remove(old_triangle);
+                }
+            }
+            Err(encroachments) => {
+                let mut vertices = vec![Rc::new(triangle.circumcenter().unwrap())]
+                    .iter()
+                    .cloned()
+                    .collect();
+
+                for encroached_edge in encroachments.iter() {
+                    let (new_edges, included_triangles, removed_triangles) =
+                        encroachment::unencroach_segment(
+                            triangulation,
+                            &encroached_edge,
+                            &mut vertices,
+                            &segment_contraints,
+                            boundary,
+                            holes,
+                        );
+
+                    segment_contraints.remove(encroached_edge);
+                    split_map.remove(encroached_edge);
+                    for subsegment in new_edges.iter() {
+                        split_map.insert(Rc::clone(subsegment), Rc::clone(encroached_edge));
+                        segment_contraints.insert(Rc::clone(subsegment));
+                    }
+
+                    for new_triangle in included_triangles.iter() {
+                        if is_irregular_triangle(new_triangle, params) {
+                            irregular_triangles.insert(Rc::clone(new_triangle));
+                            continue;
+                        }
+                        if is_large_triangle(new_triangle, params) {
+                            large_triangles.insert(Rc::clone(new_triangle));
+                            continue;
+                        }
+                    }
+                    for old_triangle in removed_triangles.iter() {
+                        irregular_triangles.remove(old_triangle);
+                        large_triangles.remove(old_triangle);
+                    }
+                }
+            }
+        }
+    }
+    return split_map;
+} /* end - split */
+
+/**
+ * Tries to insert a triangle's circumcenter.
+ * If any edge of the triangle is constrained and encroaches the circumcenter,
+ * it is returned in the hashset. The circumcenter will be inserted through constrained
+ * insertion. Among the included triangles, if any is composed by a constrained segment
+ * that encroaches the circumcenter, the segment is returned in the hashset. If there is
+ * no encroachments, the returnable is empty.
+ */
+fn try_circumcenter_insertion(
+    triangulation: &mut Triangulation,
+    triangle: &Rc<Triangle>,
+    segment_constraints: &HashSet<Rc<Edge>>,
+    boundary: &Option<Rc<Polyline>>,
+    holes: &HashSet<Rc<Polyline>>,
+) -> Result<(HashSet<Rc<Triangle>>, HashSet<Rc<Triangle>>), HashSet<Rc<Edge>>> {
+    let circumcenter = Rc::new(triangle.circumcenter().unwrap());
+    let mut conflict_map: HashMap<Rc<Triangle>, Vec<Rc<Vertex>>> = HashMap::new();
+
+    triangulation_procedures::vertices::distribute_conflicts_over_triangulation(
+        triangulation,
+        Some(Rc::clone(triangle)),
+        &mut conflict_map,
+        &mut vec![Rc::clone(&circumcenter)],
+        boundary,
+        holes,
     );
 
-    while !encroach_map.is_empty() {
-        let encroached_edge = Rc::clone(encroach_map.keys().next().unwrap());
-        let mut encroaching_vertices = encroach_map.remove(&encroached_edge).unwrap();
-
-        let new_edges = encroachment::unencroach_segment(
+    let (included_triangles, removed_triangles) =
+        triangulation_procedures::vertices::solve_conflicts(
             triangulation,
-            &encroached_edge,
-            &mut encroaching_vertices,
-            segment_contraints,
+            &mut conflict_map,
+            &mut Vec::new(),
+            segment_constraints,
             boundary,
             holes,
         );
 
-        split_map.insert(Rc::clone(&encroached_edge), new_edges);
+    let encroachments: HashSet<Rc<Edge>> = Polyline::triangles_hull(&included_triangles)
+        .unwrap()
+        .into_edges()
+        .iter()
+        .filter(|&e| segment_constraints.contains(e) || segment_constraints.contains(&e.opposite()))
+        .filter(|e| e.encroach(&circumcenter) == Continence::Inside)
+        .cloned()
+        .collect();
 
-        for v in encroaching_vertices.iter() {
-            irregular_triangles.remove(v);
+    if !encroachments.is_empty() {
+        for t in included_triangles.iter() {
+            triangulation.remove_triangle(t);
         }
+
+        for t in removed_triangles.iter() {
+            triangulation.include_triangle(t);
+        }
+        return Err(encroachments);
     }
 
-    for (circumcenter, triangle) in irregular_triangles.iter() {
-        if triangulation
-            .triangles
-            .iter()
-            .cloned()
-            .collect::<Vec<Rc<Triangle>>>()
-            .contains(triangle)
-        {
-            triangulation_procedures::vertices::include(
-                triangulation,
-                vec![Rc::clone(circumcenter)],
-                segment_contraints,
-                boundary,
-                holes,
-            );
-        }
-    }
-
-    return split_map;
-} /* end - encroach_map */
+    return Ok((included_triangles, removed_triangles));
+}
 
 #[cfg(test)]
 mod split {
@@ -138,7 +267,7 @@ mod split {
             boundary.into_edges().iter().cloned().collect();
 
         /* unencroach */
-        let mapping = encroachment::unencroach(
+        let (mapping, included_triangles, removed_triangles) = encroachment::unencroach(
             &mut triangulation,
             &boundary.into_edges().iter().cloned().collect(),
             &Some(Rc::clone(&boundary)),
@@ -158,22 +287,23 @@ mod split {
             .cloned()
             .collect();
 
-        // let rho_mean: f64 = 1.4142135623730951;
-        let mut irregular_triangles = find_irregular(
-            &mut triangulation,
-            &RefineParams {
-                max_area: 0.0, /* not used */
-                quality_ratio: 1.0,
-            },
-        );
-
         split_irregular(
             &mut triangulation,
-            &mut irregular_triangles,
+            &RefineParams {
+                max_area: None, /* not used */
+                quality_ratio: 1.0,
+            },
             &segment_constraints,
             &Some(Rc::clone(&boundary)),
             &HashSet::new(),
         );
+
+        let solid_triangles: HashSet<Rc<Triangle>> = triangulation
+            .triangles
+            .iter()
+            .filter(|t| !t.is_ghost())
+            .cloned()
+            .collect();
 
         let t1 = Rc::new(Triangle::new(
             &Rc::new(Vertex::new(0.5, 0.28867513459481287)),

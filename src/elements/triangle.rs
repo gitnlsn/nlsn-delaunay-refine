@@ -1,12 +1,13 @@
 use crate::elements::{edge::*, polyline::*, vertex::*};
 use crate::properties::{area::*, circumcenter::*, continence::*, distance::*, orientation::*};
 
-use std::cmp::Eq;
+use std::cmp::{Eq, Ord, Ordering};
 use std::fmt;
 use std::hash::Hash;
+use std::fmt::Debug;
 use std::rc::Rc;
 
-#[derive(Hash)]
+#[derive(Hash, Debug)]
 pub struct Triangle {
     pub v1: Rc<Vertex>,
     pub v2: Rc<Vertex>,
@@ -22,6 +23,35 @@ impl PartialEq for Triangle {
 }
 
 impl Eq for Triangle {}
+
+impl PartialOrd for Triangle {
+    fn partial_cmp(&self, other: &Triangle) -> Option<Ordering> {
+        let self_quality = self.quality();
+        let other_quality = other.quality();
+        if float_cmp::approx_eq!(f64, self_quality, other_quality, epsilon = 1.0E-14f64) {
+            return Some(Ordering::Equal);
+        }
+        if self_quality > other_quality {
+            return Some(Ordering::Greater);
+        } else {
+            return Some(Ordering::Less);
+        }
+    }
+}
+impl Ord for Triangle {
+    fn cmp(&self, other: &Triangle) -> Ordering {
+        let self_quality = self.quality();
+        let other_quality = other.quality();
+        if float_cmp::approx_eq!(f64, self_quality, other_quality, epsilon = 1.0E-14f64) {
+            return Ordering::Equal;
+        }
+        if self_quality > other_quality {
+            return Ordering::Greater;
+        } else {
+            return Ordering::Less;
+        }
+    }
+}
 
 impl fmt::Display for Triangle {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -256,9 +286,9 @@ mod quality_ratio {
 
     #[test]
     fn sample_1() {
-        /* 
-            Test case: equilateral triangle
-         */
+        /*
+           Test case: equilateral triangle
+        */
         let v1 = Rc::new(Vertex::new(0.0, 0.0));
         let v2 = Rc::new(Vertex::new(1.0, 0.0));
         let v3 = Rc::new(Vertex::new(0.5, 0.86602540378));
@@ -271,9 +301,9 @@ mod quality_ratio {
 
     #[test]
     fn sample_2() {
-        /* 
-            Test case: rectangle triangle
-         */
+        /*
+           Test case: rectangle triangle
+        */
         let v1 = Rc::new(Vertex::new(0.0, 0.0));
         let v2 = Rc::new(Vertex::new(0.5, 0.0));
         let v3 = Rc::new(Vertex::new(0.5, 0.28867513459481287));
@@ -286,9 +316,9 @@ mod quality_ratio {
 
     #[test]
     fn sample_3() {
-        /* 
-            Test case: isosceles triangle
-         */
+        /*
+           Test case: isosceles triangle
+        */
         let v1 = Rc::new(Vertex::new(0.0, 0.0));
         let v2 = Rc::new(Vertex::new(1.0, 0.0));
         let v3 = Rc::new(Vertex::new(1.0, 1.0));
