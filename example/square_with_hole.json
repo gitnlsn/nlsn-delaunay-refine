@@ -1,0 +1,53 @@
+{
+    "name": "Sample 3 - square one with hole",
+    "date": "2020-09-04T00:00:00.000Z",
+    "actions": [
+        {
+            "intent": "include",
+            "geometry": "polyline",
+            "points": [
+                {
+                    "x": -0.9,
+                    "y": -0.9
+                },
+                {
+                    "x": 0.9,
+                    "y": -0.9
+                },
+                {
+                    "x": 0.9,
+                    "y": 0.9
+                },
+                {
+                    "x": -0.9,
+                    "y": 0.9
+                }
+            ]
+        },
+        {
+            "intent": "remove",
+            "geometry": "polyline",
+            "points": [
+                {
+                    "x": -0.25,
+                    "y": 0.0
+                },
+                {
+                    "x": 0.0,
+                    "y": -0.25
+                },
+                {
+                    "x": 0.25,
+                    "y": 0.0
+                },
+                {
+                    "x": 0.0,
+                    "y": 0.25
+                }
+            ]
+        }
+    ],
+    "params": {
+        "quality": 1.0
+    }
+}

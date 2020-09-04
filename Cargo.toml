@@ -1,26 +1,32 @@
 [package]
-edition = "2018"
-name = "nlsn-delaunay"
-version = "0.1.1"
 authors = ["nelson kenzo tamashiro <nelsonkenzotamashiro@gmail.com>"]
-description = "Delaunay Triangulation and Refinement implementation through Bowyer Watson incremental insertion, conflict maps and ghost vertices."
-homepage = "https://github.com/nelsonatgithub/nlsn-delaunay-refine"
-documentation = "https://github.com/nelsonatgithub/nlsn-delaunay-refine"
-repository = "https://github.com/nelsonatgithub/nlsn-delaunay-refine"
-readme = "README.md"
-license-file = "LICENSE"
-keywords = ["triangulation", "delaunay", "Bowyer-Watson", "refinement", "incremental"]
 categories = ["algorithms", "mathematics", "science", "simulation", "wasm"]
+description = "Delaunay Triangulation and Refinement implementation through Bowyer Watson incremental insertion, conflict maps and ghost vertices."
+documentation = "https://github.com/nelsonatgithub/nlsn-delaunay-refine"
+edition = "2018"
+homepage = "https://github.com/nelsonatgithub/nlsn-delaunay-refine"
 include = ["src/**/*.rs", "Cargo.toml"]
+keywords = ["triangulation", "delaunay", "Bowyer-Watson", "refinement", "incremental"]
+license-file = "LICENSE"
+name = "nlsn-delaunay"
+readme = "README.md"
+repository = "https://github.com/nelsonatgithub/nlsn-delaunay-refine"
+version = "0.1.1"
 
 [badges]
-codecov = { repository = "https://github.com/nelsonatgithub/nlsn-delaunay-refine", branch = "dev", service = "github" }
-coveralls = { repository = "https://github.com/nelsonatgithub/nlsn-delaunay-refine", branch = "dev", service = "github" }
-is-it-maintained-issue-resolution = { repository = "https://github.com/nelsonatgithub/nlsn-delaunay-refine" }
-is-it-maintained-open-issues = { repository = "https://github.com/nelsonatgithub/nlsn-delaunay-refine" }
+codecov = {repository = "https://github.com/nelsonatgithub/nlsn-delaunay-refine", branch = "dev", service = "github"}
+coveralls = {repository = "https://github.com/nelsonatgithub/nlsn-delaunay-refine", branch = "dev", service = "github"}
+is-it-maintained-issue-resolution = {repository = "https://github.com/nelsonatgithub/nlsn-delaunay-refine"}
+is-it-maintained-open-issues = {repository = "https://github.com/nelsonatgithub/nlsn-delaunay-refine"}
 
 [dependencies]
-nalgebra = "0.22"
-num = "0.3.0"
+chrono = "0.4.15"
 float-cmp = "0.8.0"
 glium = "0.27.0"
+nalgebra = "0.22"
+num = "0.3.0"
+serde = {version = "1.0.115", features = ["derive"]}
+serde_json = "1.0.57"
+uuid = {version = "0.8", features = ["serde", "v4"]}
+structopt = "0.3.17"
+structopt-derive = "0.4.10"

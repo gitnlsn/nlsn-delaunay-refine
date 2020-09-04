@@ -1,0 +1,22 @@
+{
+    "name": "Sample 4 - Circle",
+    "date": "2020-09-04T00:00:00.000Z",
+    "actions": [
+        {
+            "intent": "include",
+            "geometry": "circle",
+            "points": [
+                {
+                    "x": 0.0,
+                    "y": 0.0
+                }
+            ],
+            "scalars": [
+                0.95
+            ]
+        }
+    ],
+    "params": {
+        "quality": 1.0
+    }
+}

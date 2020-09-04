@@ -515,8 +515,8 @@ impl Polyline {
      * oriented. Returns a Vec of polylines that results from the subtraction
      * operation and a Vec of segments that does not belong to the result.
      */
-    pub fn subtraction(p1: &Self, p2: &Self) -> (Vec<Self>, HashSet<(Rc<Vertex>, Rc<Vertex>)>) {
-        let mut polyline_intersection_list: Vec<Self> = Vec::new();
+    pub fn subtraction(p1: &Self, p2: &Self) -> (Vec<Rc<Self>>, HashSet<(Rc<Vertex>, Rc<Vertex>)>) {
+        let mut polyline_intersection_list: Vec<Rc<Self>> = Vec::new();
         let mut unused_segments: HashSet<(Rc<Vertex>, Rc<Vertex>)> = HashSet::new();
 
         let p1_segments = vertex_pairs(&p1.vertices, p1.opened);
@@ -534,7 +534,10 @@ impl Polyline {
         let p2_bbox = p2.bounding_box().unwrap();
         let no_intersection_area = BoundingBox::intersection(&p1_bbox, &p2_bbox).is_none();
 
-        if p1.opened || p2.opened || no_intersection_area {
+        let p2_contained_without_intersection =
+            Self::continence(&p1, &p2) == Some((Continence::Inside, BoundaryInclusion::Open));
+
+        if p1.opened || p2.opened || no_intersection_area || p2_contained_without_intersection {
             let unused_segments: HashSet<(Rc<Vertex>, Rc<Vertex>)> =
                 possible_segments.iter().cloned().collect();
             return (polyline_intersection_list, unused_segments);
@@ -658,7 +661,8 @@ impl Polyline {
                                 .map(|(last_v1, _)| Rc::clone(last_v1))
                                 .collect();
 
-                            polyline_intersection_list.push(Self::new_closed(vertices).unwrap());
+                            polyline_intersection_list
+                                .push(Rc::new(Self::new_closed(vertices).unwrap()));
                             break;
                         }
                     } /* end - if minimal length */

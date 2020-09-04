@@ -38,6 +38,10 @@ impl Triangulator {
         &mut self,
         vertices: &HashSet<Rc<Vertex>>,
     ) -> Result<&Self, HashSet<Rc<Vertex>>> {
+        if vertices.is_empty() {
+            return Ok(self);
+        }
+
         let mut panic_vertices: HashSet<Rc<Vertex>> = HashSet::new();
 
         /* Boundary continence */
@@ -104,6 +108,10 @@ impl Triangulator {
         &mut self,
         segments: &HashSet<Rc<Edge>>,
     ) -> Result<&Self, HashSet<Rc<Edge>>> {
+        if segments.is_empty() {
+            return Ok(self);
+        }
+
         /* Accumulate conflicting segments */
         let mut conflicting_segments: HashSet<Rc<Edge>> = HashSet::new();
         for segment in segments.iter() {
