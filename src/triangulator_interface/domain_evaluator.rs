@@ -15,12 +15,13 @@ use std::rc::Rc;
 pub fn boundary(
     includes: &Vec<Rc<Polyline>>,
     removes: &Vec<Rc<Polyline>>,
-) -> Result<Rc<Polyline>, ()> {
+) -> Result<(Rc<Polyline>, Vec<Rc<Polyline>>), ()> {
     if includes.is_empty() {
         return Err(());
     }
 
     let mut includes: HashSet<Rc<Polyline>> = includes.iter().cloned().collect();
+    let mut unused_removals: Vec<Rc<Polyline>> = Vec::new();
 
     let mut boundary = Rc::clone(includes.iter().next().unwrap());
     includes.remove(&boundary);
@@ -41,17 +42,19 @@ pub fn boundary(
 
     for possible_removal in removes.iter() {
         let (subtraction_list, _) = Polyline::subtraction(&boundary, possible_removal);
-
+        
         if subtraction_list.len() > 1 {
             /* divided union in more than 1 */
             return Err(());
         }
         if subtraction_list.len() == 1 {
             boundary = Rc::clone(subtraction_list.get(0).unwrap());
+            continue;
         }
+        unused_removals.push(Rc::clone(possible_removal));
     }
 
-    return Ok(boundary);
+    return Ok((boundary, unused_removals));
 }
 
 /**

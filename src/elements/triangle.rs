@@ -1,10 +1,10 @@
 use crate::elements::{edge::*, polyline::*, vertex::*};
 use crate::properties::{area::*, circumcenter::*, continence::*, distance::*, orientation::*};
 
-use std::cmp::{Eq, Ord, Ordering};
+use std::cmp::Eq;
 use std::fmt;
-use std::hash::Hash;
 use std::fmt::Debug;
+use std::hash::Hash;
 use std::rc::Rc;
 
 #[derive(Hash, Debug)]
@@ -314,6 +314,44 @@ mod quality_ratio {
         let ratio = triangle.quality().unwrap();
 
         assert!((ratio - 0.7071067811865476).abs() < 0.00000001);
+    }
+
+    #[test]
+    fn sample_4() {
+        /*
+           Test case: skinny triangle
+        */
+        let p1 = Rc::new(Vertex::new(0.80, -0.5));
+        let p2 = Rc::new(Vertex::new(0.95, -0.5));
+        let p3 = Rc::new(Vertex::new(0.80, 0.5));
+
+        let triangle = Triangle::new(&p1, &p2, &p3);
+        let ratio = triangle.quality().unwrap();
+
+        assert!((ratio - 3.370624736026116).abs() < 0.00000001);
+    }
+
+    #[test]
+    fn sample_5() {
+        /*
+           Test case: circle discretization in 100 segments
+        */
+
+        fn get_circle_point(radius: f64, angle: f64, center: &Vertex) -> Vertex {
+            let dx = radius * angle.cos();
+            let dy = radius * angle.sin();
+            return Vertex::new(center.x + dx, center.y + dy);
+        }
+        let dphi = std::f64::consts::PI * 2.0 / 100 as f64;
+
+        let center = Rc::new(Vertex::new(0.0, 0.0));
+        let p1 = Rc::new(get_circle_point(0.95, dphi * 0.0, &center));
+        let p2 = Rc::new(get_circle_point(0.95, dphi * 1.0, &center));
+
+        let triangle = Triangle::new(&p1, &p2, &center);
+        let ratio = triangle.quality().unwrap();
+
+        assert!((ratio - 7.962985554954328).abs() < 0.00000001);
     }
 }
 

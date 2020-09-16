@@ -14,14 +14,14 @@ pub fn unencroach(
     boundary: &Option<Rc<Polyline>>,
     holes: &HashSet<Rc<Polyline>>,
 ) -> (
-    HashMap<Rc<Edge>, HashSet<Rc<Edge>>>,
+    HashMap<Rc<Edge>, Rc<Edge>>,
     HashSet<Rc<Triangle>>,
     HashSet<Rc<Triangle>>,
 ) {
     let mut included_triangles: HashSet<Rc<Triangle>> = HashSet::new();
     let mut removed_triangles: HashSet<Rc<Triangle>> = HashSet::new();
 
-    let mut split_map: HashMap<Rc<Edge>, HashSet<Rc<Edge>>> = HashMap::new();
+    let mut split_map: HashMap<Rc<Edge>, Rc<Edge>> = HashMap::new();
     let mut encroach_map: HashMap<Rc<Edge>, HashSet<Rc<Vertex>>> = HashMap::new();
 
     distribute_encroachments(
@@ -43,7 +43,9 @@ pub fn unencroach(
             holes,
         );
 
-        split_map.insert(Rc::clone(&encroached_edge), new_edges);
+        for e in new_edges.iter() {
+            split_map.insert(Rc::clone(e), Rc::clone(&encroached_edge));
+        }
 
         included_triangles = included_triangles
             .iter()
@@ -523,12 +525,8 @@ mod unencroach {
                - quantity of split segments
                - quantity of new segments
         */
-        let split_segments = mapping.keys().cloned().collect::<HashSet<Rc<Edge>>>();
-        let new_segments = mapping
-            .values()
-            .flatten()
-            .cloned()
-            .collect::<HashSet<Rc<Edge>>>();
+        let split_segments = mapping.values().cloned().collect::<HashSet<Rc<Edge>>>();
+        let new_segments = mapping.keys().cloned().collect::<HashSet<Rc<Edge>>>();
 
         assert_eq!(split_segments.len(), 3);
         assert!(split_segments.contains(&Edge::new(&v1, &v2)));
@@ -574,30 +572,25 @@ mod unencroach {
         /*
            Testing against:
         */
-        let split_segments = mapping.keys().cloned().collect::<HashSet<Rc<Edge>>>();
-        let new_segments = mapping
-            .values()
-            .flatten()
-            .cloned()
-            .collect::<HashSet<Rc<Edge>>>();
+        let split_segments = mapping.values().cloned().collect::<HashSet<Rc<Edge>>>();
+        let new_segments = mapping.keys().cloned().collect::<HashSet<Rc<Edge>>>();
 
-        assert_eq!(mapping.len(), 3);
+        assert_eq!(split_segments.len(), 3);
         assert!(split_segments.contains(&Edge::new(&v1, &v2)));
         assert!(split_segments.contains(&Edge::new(&v2, &v3)));
         assert!(split_segments.contains(&Edge::new(&v3, &v1)));
 
         assert_eq!(new_segments.len(), 8);
 
-        let new_segments_edge12 = mapping.get(&Edge::new(&v1, &v2)).unwrap();
-        assert!(new_segments_edge12.contains(&Edge::new(
+        assert!(new_segments.contains(&Edge::new(
             &Rc::new(Vertex::new(0.0, 0.0)),
             &Rc::new(Vertex::new(2.0, 0.0)),
         )));
-        assert!(new_segments_edge12.contains(&Edge::new(
+        assert!(new_segments.contains(&Edge::new(
             &Rc::new(Vertex::new(2.0, 0.0)),
             &Rc::new(Vertex::new(4.0, 0.0)),
         )));
-        assert!(new_segments_edge12.contains(&Edge::new(
+        assert!(new_segments.contains(&Edge::new(
             &Rc::new(Vertex::new(4.0, 0.0)),
             &Rc::new(Vertex::new(8.0, 0.0)),
         )));

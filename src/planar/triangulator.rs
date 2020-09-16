@@ -274,13 +274,13 @@ impl Triangulator {
         segment_constraints = segment_constraints
             .iter()
             .filter(|&s| {
-                segments_splitting
-                    .keys()
+                let removed_segments = segments_splitting
+                    .values()
                     .cloned()
-                    .collect::<HashSet<Rc<Edge>>>()
-                    .contains(s)
+                    .collect::<HashSet<Rc<Edge>>>();
+                return !removed_segments.contains(s) && !removed_segments.contains(&s.opposite());
             })
-            .chain(segments_splitting.values().flatten())
+            .chain(segments_splitting.keys())
             .cloned()
             .collect();
 
@@ -295,11 +295,11 @@ impl Triangulator {
         segment_constraints = segment_constraints
             .iter()
             .filter(|&s| {
-                segments_splitting
+                let removed_segments = segments_splitting
                     .values()
                     .cloned()
-                    .collect::<HashSet<Rc<Edge>>>()
-                    .contains(s)
+                    .collect::<HashSet<Rc<Edge>>>();
+                return !removed_segments.contains(s) && !removed_segments.contains(&s.opposite());
             })
             .chain(segments_splitting.keys())
             .cloned()

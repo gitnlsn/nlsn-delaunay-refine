@@ -1,0 +1,89 @@
+{
+    "name": "Sample 6 - Wrench",
+    "date": "2020-09-04T00:00:00.000Z",
+    "actions": [
+        {
+            "intent": "include",
+            "geometry": "circle",
+            "points": [
+                {
+                    "x": 0.0,
+                    "y": 0.0
+                }
+            ],
+            "scalars": [
+                0.90
+            ]
+        },
+        {
+            "intent": "include",
+            "geometry": "polyline",
+            "points": [
+                {
+                    "x": 0.1,
+                    "y": -0.5
+                },
+                {
+                    "x": 0.95,
+                    "y": -0.5
+                },
+                {
+                    "x": 0.95,
+                    "y": 0.5
+                },
+                {
+                    "x": 0.1,
+                    "y": 0.5
+                }
+            ]
+        },
+        {
+            "intent": "remove",
+            "geometry": "polyline",
+            "points": [
+                {
+                    "x": -0.95,
+                    "y": -0.95
+                },
+                {
+                    "x": -0.75,
+                    "y": -0.95
+                },
+                {
+                    "x": -0.75,
+                    "y": 0.95
+                },
+                {
+                    "x": -0.95,
+                    "y": 0.95
+                }
+            ]
+        },
+        {
+            "intent": "remove",
+            "geometry": "polyline",
+            "points": [
+                {
+                    "x": -0.95,
+                    "y": -0.40
+                },
+                {
+                    "x": -0.05,
+                    "y": -0.40
+                },
+                {
+                    "x": -0.05,
+                    "y": 0.40
+                },
+                {
+                    "x": -0.95,
+                    "y": 0.40
+                }
+            ]
+        }
+    ],
+    "params": {
+        "quality": 1.2,
+        "max_area": 0.008
+    }
+}

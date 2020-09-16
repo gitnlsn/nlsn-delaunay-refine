@@ -188,6 +188,11 @@ mod intersection {
         assert_eq!(intersection_bbox.destin.x, 3.0);
         assert_eq!(intersection_bbox.destin.y, 4.0);
     }
+}
+
+#[cfg(test)]
+mod union {
+    use super::*;
 
     #[test]
     fn test_inclusion() {
@@ -205,5 +210,79 @@ mod intersection {
         assert_eq!(bbox.origin.y, 0.0);
         assert_eq!(bbox.destin.x, 5.0);
         assert_eq!(bbox.destin.y, 6.0);
+    }
+}
+
+#[cfg(test)]
+mod edge_cases {
+    use super::*;
+
+    #[test]
+    fn exception_1() {
+        /* vertical skinny */
+        let v1 = Rc::new(Vertex::new(3.0, 0.0));
+        let v2 = Rc::new(Vertex::new(3.0, 4.0));
+        let v3 = Rc::new(Vertex::new(0.0, 0.0));
+        let v4 = Rc::new(Vertex::new(6.0, 4.0));
+
+        let b1 = BoundingBox::from_vertices(vec![v1, v2]).unwrap();
+        let b2 = BoundingBox::from_vertices(vec![v3, v4]).unwrap();
+
+        let intersection_bbox = BoundingBox::intersection(&b1, &b2);
+
+        assert!(intersection_bbox.is_some());
+        if let Some(intersection_bbox) = intersection_bbox {
+            assert_eq!(intersection_bbox.origin.x, 3.0);
+            assert_eq!(intersection_bbox.origin.y, 0.0);
+            assert_eq!(intersection_bbox.destin.x, 3.0);
+            assert_eq!(intersection_bbox.destin.y, 4.0);
+        }
+
+        /* horizontal skinny */
+        let v1 = Rc::new(Vertex::new(0.0, 2.0));
+        let v2 = Rc::new(Vertex::new(6.0, 2.0));
+        let v3 = Rc::new(Vertex::new(0.0, 0.0));
+        let v4 = Rc::new(Vertex::new(6.0, 4.0));
+
+        let b1 = BoundingBox::from_vertices(vec![v1, v2]).unwrap();
+        let b2 = BoundingBox::from_vertices(vec![v3, v4]).unwrap();
+
+        let intersection_bbox = BoundingBox::intersection(&b1, &b2);
+
+        assert!(intersection_bbox.is_some());
+        if let Some(intersection_bbox) = intersection_bbox {
+            assert_eq!(intersection_bbox.origin.x, 0.0);
+            assert_eq!(intersection_bbox.origin.y, 2.0);
+            assert_eq!(intersection_bbox.destin.x, 6.0);
+            assert_eq!(intersection_bbox.destin.y, 2.0);
+        }
+    }
+
+    #[test]
+    fn exception_2() {
+        let v1 = Rc::new(Vertex::new(-0.43357830669154374, -0.7886760120394772));
+        let v2 = Rc::new(Vertex::new(-0.38320136240856495, -0.8143443472194178));
+        let v3 = Rc::new(Vertex::new(-0.4, 0.95));
+        let v4 = Rc::new(Vertex::new(-0.4, -0.95));
+
+
+        let b1 = BoundingBox::from_vertices(vec![v1, v2]).unwrap();
+        let b2 = BoundingBox::from_vertices(vec![v3, v4]).unwrap();
+
+        let intersection_bbox = BoundingBox::intersection(&b1, &b2);
+
+        assert!(intersection_bbox.is_some());
+
+        let v1 = Rc::new(Vertex::new(-0.38320136240856545, 0.8143443472194175));
+        let v2 = Rc::new(Vertex::new(-0.4335783066915439, 0.7886760120394771));
+        let v3 = Rc::new(Vertex::new(-0.4, 0.95));
+        let v4 = Rc::new(Vertex::new(-0.4, -0.95));
+
+        let b1 = BoundingBox::from_vertices(vec![v1, v2]).unwrap();
+        let b2 = BoundingBox::from_vertices(vec![v3, v4]).unwrap();
+
+        let intersection_bbox = BoundingBox::intersection(&b1, &b2);
+
+        assert!(intersection_bbox.is_some());
     }
 }

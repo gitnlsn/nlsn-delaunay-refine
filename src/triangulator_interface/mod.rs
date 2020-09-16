@@ -27,13 +27,16 @@ pub fn parse(input: &TriangulationInput) -> Result<(Triangulator, RefineParams),
     ) = result.unwrap();
 
     let boundary: Rc<Polyline>;
+    let unused_removals: Vec<Rc<Polyline>>;
     match domain_evaluator::boundary(&inclusion_domains, &removal_domains) {
-        Ok(polyline) => {
+        Ok((polyline, unused)) => {
             boundary = polyline;
+            unused_removals = unused;
         }
         Err(_) => return Err(()),
     }
-    let holes: HashSet<Rc<Polyline>> = domain_evaluator::holes(&boundary, &removal_domains);
+    
+    let holes: HashSet<Rc<Polyline>> = domain_evaluator::holes(&boundary, &unused_removals);
 
     let mut triangulator: Triangulator = Triangulator::new(&boundary);
     for hole in holes.iter() {

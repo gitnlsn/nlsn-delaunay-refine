@@ -860,7 +860,6 @@ pub fn split_intersections(
     let mut splited_segments: Vec<(Rc<Vertex>, Rc<Vertex>)> = Vec::new();
     let mut aux_set: Vec<(Rc<Vertex>, Rc<Vertex>)> = segments.iter().cloned().collect();
 
-    splited_segments.push(aux_set.pop().unwrap());
     while !aux_set.is_empty() {
         let (v1, v2) = aux_set.pop().unwrap();
         if let Some(index) = splited_segments.iter().position(|(v3, v4)| {
@@ -1777,11 +1776,54 @@ mod subtraction {
             4.6000000000000005,
             1.6000000000000005
         ))));
+    } /* end - exception case 3 */
+
+    #[test]
+    fn exception_case_4() {
+        /* Circle build */
+        fn get_circle_point(radius: f64, angle: f64, center: &Vertex) -> Vertex {
+            let dx = radius * angle.cos();
+            let dy = radius * angle.sin();
+            return Vertex::new(center.x + dx, center.y + dy);
+        }
+
+        let mut vertices: Vec<Rc<Vertex>> = Vec::new();
+        let radius: f64 = 0.9;
+        let resolution: usize = 100;
+        let center = Rc::new(Vertex::new(0.0, 0.0));
+
+        let dphi = std::f64::consts::PI * 2.0 / resolution as f64;
+        for index in 0..resolution {
+            let angle: f64 = dphi * index as f64;
+            let vertex = get_circle_point(radius, angle, &center);
+            vertices.push(Rc::new(vertex));
+        }
+
+        let circle_boundary = Rc::new(Polyline::new_closed(vertices).unwrap());
+
+        /* Rectangle */
+        let v1 = Rc::new(Vertex::new(-0.95, -0.95));
+        let v2 = Rc::new(Vertex::new(-0.40, -0.95));
+        let v3 = Rc::new(Vertex::new(-0.40, 0.95));
+        let v4 = Rc::new(Vertex::new(-0.95, 0.95));
+
+        let rectangle = Rc::new(
+            Polyline::new_closed(vec![
+                Rc::clone(&v1),
+                Rc::clone(&v2),
+                Rc::clone(&v3),
+                Rc::clone(&v4),
+            ])
+            .unwrap(),
+        );
+
+        let (subtraction_list, _) = Polyline::subtraction(&circle_boundary, &rectangle);
+        assert_eq!(subtraction_list.len(), 1);
     }
 } /* end - subtraction tests */
 
 #[cfg(test)]
-mod split_by_intersections {
+mod split_intersections {
     use super::*;
 
     #[test]
@@ -1799,6 +1841,67 @@ mod split_by_intersections {
         let segments: Vec<(Rc<Vertex>, Rc<Vertex>)> = t1.iter().chain(t2.iter()).cloned().collect();
         let splited_segments = split_intersections(&segments);
         assert_eq!(splited_segments.len(), 18);
+    }
+
+    #[test]
+    fn exception_1() {
+        /* Circle build */
+        fn get_circle_point(radius: f64, angle: f64, center: &Vertex) -> Vertex {
+            let dx = radius * angle.cos();
+            let dy = radius * angle.sin();
+            return Vertex::new(center.x + dx, center.y + dy);
+        }
+
+        let mut vertices: Vec<Rc<Vertex>> = Vec::new();
+        let radius: f64 = 0.9;
+        let resolution: usize = 100;
+        let center = Rc::new(Vertex::new(0.0, 0.0));
+
+        let dphi = std::f64::consts::PI * 2.0 / resolution as f64;
+        for index in 0..resolution {
+            let angle: f64 = dphi * index as f64;
+            let vertex = get_circle_point(radius, angle, &center);
+            vertices.push(Rc::new(vertex));
+        }
+
+        let circle_boundary = Rc::new(Polyline::new_closed(vertices).unwrap());
+
+        /* Rectangle */
+        let v1 = Rc::new(Vertex::new(-0.95, -0.95));
+        let v2 = Rc::new(Vertex::new(-0.40, -0.95));
+        let v3 = Rc::new(Vertex::new(-0.40, 0.95));
+        let v4 = Rc::new(Vertex::new(-0.95, 0.95));
+
+        let rectangle: Rc<Polyline> = Rc::new(
+            Polyline::new_closed(vec![
+                Rc::clone(&v1),
+                Rc::clone(&v2),
+                Rc::clone(&v3),
+                Rc::clone(&v4),
+            ])
+            .unwrap(),
+        );
+
+        let p1_segments = vertex_pairs(&circle_boundary.vertices, circle_boundary.opened);
+        let p2_segments = vertex_pairs(
+            &rectangle.vertices.iter().cloned().rev().collect(),
+            rectangle.opened,
+        );
+
+        let splited = split_intersections(
+            &p1_segments
+                .iter()
+                .chain(p2_segments.iter())
+                .cloned()
+                .collect(),
+        );
+        let p2_splited: Vec<(Rc<Vertex>, Rc<Vertex>)> = splited
+            .iter()
+            .filter(|(v1, v2)| rectangle.contains(&midpoint(v1, v2)) == Some(Continence::Boundary))
+            .cloned()
+            .collect();
+
+        assert!(p2_splited.len() > 4);
     }
 }
 

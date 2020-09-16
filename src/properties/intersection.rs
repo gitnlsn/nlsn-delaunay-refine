@@ -23,8 +23,12 @@ pub fn intersection(
 ) -> Option<Vertex> {
     if let Some(bbox) = intersection_region(v1, v2, v3, v4) {
         if let Some(vertex) = intersection_vertex(v1, v2, v3, v4, &bbox) {
-            let in_interval_x = vertex.x >= bbox.origin.x && vertex.x <= bbox.destin.x;
-            let in_interval_y = vertex.y >= bbox.origin.y && vertex.y <= bbox.destin.y;
+            let in_interval_x = (vertex.x >= bbox.origin.x && vertex.x <= bbox.destin.x)
+                || float_cmp::approx_eq!(f64, bbox.origin.x, vertex.x, epsilon = 1.0E-14f64)
+                || float_cmp::approx_eq!(f64, bbox.destin.x, vertex.x, epsilon = 1.0E-14f64);
+            let in_interval_y = (vertex.y >= bbox.origin.y && vertex.y <= bbox.destin.y)
+                || float_cmp::approx_eq!(f64, bbox.origin.y, vertex.y, epsilon = 1.0E-14f64)
+                || float_cmp::approx_eq!(f64, bbox.destin.y, vertex.y, epsilon = 1.0E-14f64);
 
             if in_interval_x && in_interval_y {
                 return Some(vertex);
@@ -197,5 +201,26 @@ mod intersection {
         let v4 = Rc::new(Vertex::new(3.0, 1.0));
 
         assert_eq!(intersection(&v1, &v2, &v3, &v4), None);
+    }
+
+    #[test]
+    fn exception_case_2() {
+        /*
+            Improper handle to float point eq comparison lead to miss interpretation 
+            on intersection point when intersection bounding box resulted in skinny
+            bounding box
+        */
+        let v1 = Rc::new(Vertex::new(-0.43357830669154374, -0.7886760120394772));
+        let v2 = Rc::new(Vertex::new(-0.38320136240856495, -0.8143443472194178));
+        let v3 = Rc::new(Vertex::new(-0.4, 0.95));
+        let v4 = Rc::new(Vertex::new(-0.4, -0.95));
+
+        assert!(intersection(&v1, &v2, &v3, &v4).is_some());
+
+        let v1 = Rc::new(Vertex::new(-0.38320136240856545, 0.8143443472194175));
+        let v2 = Rc::new(Vertex::new(-0.4335783066915439, 0.7886760120394771));
+        let v3 = Rc::new(Vertex::new(-0.4, 0.95));
+        let v4 = Rc::new(Vertex::new(-0.4, -0.95));
+        assert!(intersection(&v1, &v2, &v3, &v4).is_some());
     }
 }

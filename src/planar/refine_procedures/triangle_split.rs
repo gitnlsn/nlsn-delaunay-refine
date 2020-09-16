@@ -274,14 +274,11 @@ mod split {
 
         segment_constraints = segment_constraints
             .iter()
-            .filter(|&e| {
-                !mapping
-                    .keys()
-                    .cloned()
-                    .collect::<HashSet<Rc<Edge>>>()
-                    .contains(e)
+            .filter(|&s| {
+                let removed_segments = mapping.values().cloned().collect::<HashSet<Rc<Edge>>>();
+                return removed_segments.contains(s) || removed_segments.contains(&s.opposite());
             })
-            .chain(mapping.values().flatten())
+            .chain(mapping.keys())
             .cloned()
             .collect();
 
@@ -436,5 +433,60 @@ mod split {
             .cloned()
             .collect::<Vec<Rc<Triangle>>>()
             .contains(&t12));
+    }
+}
+
+#[cfg(test)]
+mod try_circumcenter_insertion {
+    use super::*;
+
+    #[test]
+    fn exception_1() {
+        let p1 = Rc::new(Vertex::new(0.80, -0.5));
+        let p2 = Rc::new(Vertex::new(0.95, -0.5));
+        let p3 = Rc::new(Vertex::new(0.95, 0.5));
+        let p4 = Rc::new(Vertex::new(0.80, 0.5));
+
+        let mut triangulation = Triangulation::from_initial_segment((&p1, &p2));
+        triangulation_procedures::vertices::include(
+            &mut triangulation,
+            vec![Rc::clone(&p3), Rc::clone(&p4)],
+            &HashSet::new(),
+            &None,
+            &HashSet::new(),
+        );
+
+        let s1 = Rc::new(Edge::new(&p1, &p2));
+        let s2 = Rc::new(Edge::new(&p2, &p3));
+        let s3 = Rc::new(Edge::new(&p3, &p4));
+        let s4 = Rc::new(Edge::new(&p4, &p1));
+
+        let mut segment_constraints = HashSet::new();
+        segment_constraints.insert(Rc::clone(&s2));
+
+        let boundary = Rc::new(
+            Polyline::new_closed(vec![
+                Rc::clone(&p1),
+                Rc::clone(&p2),
+                Rc::clone(&p3),
+                Rc::clone(&p4),
+            ])
+            .unwrap(),
+        );
+
+        let t1 = Rc::clone(triangulation.triangles.iter().filter(|t| !t.is_ghost()).next().unwrap());
+
+        let result = try_circumcenter_insertion(
+            &mut triangulation,
+            &t1,
+            &segment_constraints,
+            &Some(Rc::clone(&boundary)),
+            &HashSet::new(),
+        );
+
+        assert!(result.is_err());
+        if let Err(encroachment) = result {
+            assert!(encroachment.contains(&s2));
+        }
     }
 }
