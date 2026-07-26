@@ -6,6 +6,7 @@ use crate::planar::{
 
 use crate::properties::continence::*;
 
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
@@ -38,6 +39,61 @@ fn is_large_triangle(triangle: &Triangle, params: &RefineParams) -> bool {
     };
 
     return greater_area;
+}
+
+/// A total, hash-independent ordering key for a triangle.
+///
+/// `HashSet::iter().next()` returns an arbitrary element, and Rust seeds its
+/// default hasher randomly per process, so selecting the next triangle to split
+/// that way makes the output mesh differ between runs on identical input. Since
+/// a solver will eventually consume these meshes, refinement has to be
+/// reproducible, so selection is driven by geometry instead.
+fn ordering_key(triangle: &Triangle) -> [f64; 6] {
+    let mut corners = [
+        (triangle.v1.x, triangle.v1.y),
+        (triangle.v2.x, triangle.v2.y),
+        (triangle.v3.x, triangle.v3.y),
+    ];
+    // Sorted so that the key is invariant to which rotation of the triangle we
+    // happen to hold.
+    corners.sort_by(|a, b| {
+        a.0.partial_cmp(&b.0)
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal))
+    });
+
+    [
+        corners[0].0,
+        corners[0].1,
+        corners[1].0,
+        corners[1].1,
+        corners[2].0,
+        corners[2].1,
+    ]
+}
+
+/// Picks the worst triangle in the set, deterministically.
+///
+/// Worst-first is also the better refinement order: it attacks the elements
+/// driving the quality bound rather than whichever one the hasher surfaced.
+fn take_worst(set: &mut HashSet<Rc<Triangle>>) -> Option<Rc<Triangle>> {
+    let worst = set
+        .iter()
+        .max_by(|a, b| {
+            let qa = a.quality().unwrap_or(f64::NEG_INFINITY);
+            let qb = b.quality().unwrap_or(f64::NEG_INFINITY);
+            qa.partial_cmp(&qb)
+                .unwrap_or(Ordering::Equal)
+                .then_with(|| {
+                    ordering_key(a)
+                        .partial_cmp(&ordering_key(b))
+                        .unwrap_or(Ordering::Equal)
+                })
+        })
+        .cloned()?;
+
+    set.remove(&worst);
+    Some(worst)
 }
 
 /**
@@ -79,12 +135,10 @@ pub fn split_irregular(
 
     loop {
         let triangle;
-        if let Some(irregular_triangle) = irregular_triangles.iter().next() {
-            triangle = Rc::clone(&irregular_triangle);
-            irregular_triangles.remove(&triangle);
-        } else if let Some(large_triangle) = large_triangles.iter().next() {
-            triangle = Rc::clone(&large_triangle);
-            large_triangles.remove(&triangle);
+        if let Some(irregular_triangle) = take_worst(&mut irregular_triangles) {
+            triangle = irregular_triangle;
+        } else if let Some(large_triangle) = take_worst(&mut large_triangles) {
+            triangle = large_triangle;
         } else {
             break;
         }
