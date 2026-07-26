@@ -14,6 +14,16 @@ pub enum RefineOutcome {
     HitStepLimit,
     /// Hit `max_triangles`. Usually `max_area` set far too small for the domain.
     HitSizeLimit,
+    /// Refinement ran to completion, but this many elements could not be
+    /// improved to the requested quality.
+    ///
+    /// Distinct from the limits: nothing was truncated and no more work was
+    /// available. It means the target is not reachable on this input -- most
+    /// often at an input corner sharper than roughly twice the requested angle,
+    /// where the elements filling the wedge are forced to be at least as bad as
+    /// the corner. The honest response is to change the geometry or accept the
+    /// local quality, so the count is carried rather than swallowed.
+    LeftUnimprovable(usize),
 }
 
 impl RefineOutcome {

@@ -150,6 +150,7 @@ pub fn split_irregular(
 
     let mut outcome = RefineOutcome::Converged;
     let mut steps: usize = 0;
+    let mut unimprovable: usize = 0;
 
     loop {
         // Bounded so a non-terminating configuration degrades into a usable
@@ -203,7 +204,20 @@ pub fn split_irregular(
             // one that is not in the domain. Both were already taken out of the
             // bad-triangle sets, so move on rather than queueing work that can
             // never succeed.
-            InsertionOutcome::Degenerate | InsertionOutcome::OutsideDomain => continue,
+            // Neither can be acted on: one has no circumcenter, the other has
+            // one that is not in the domain, and the encroachment fallback in
+            // `try_circumcenter_insertion` already came back empty. The element
+            // stays as it is.
+            //
+            // What must not happen is calling that convergence. `take_worst`
+            // has already removed this element from the work-set and nothing
+            // puts it back, so the loop will drain and report success while the
+            // element sits below the requested angle. Counted here, and carried
+            // out in the outcome.
+            InsertionOutcome::Degenerate | InsertionOutcome::OutsideDomain => {
+                unimprovable += 1;
+                continue;
+            }
 
             InsertionOutcome::Inserted {
                 included: included_triangles,
@@ -268,6 +282,13 @@ pub fn split_irregular(
             }
         }
     }
+    // Convergence is a claim about the whole mesh, so it cannot be made while
+    // elements are known to be short of the target. A limit takes precedence:
+    // running out of steps is the more specific fact about what happened.
+    if unimprovable > 0 && outcome == RefineOutcome::Converged {
+        outcome = RefineOutcome::LeftUnimprovable(unimprovable);
+    }
+
     return (split_map, outcome);
 } /* end - split */
 

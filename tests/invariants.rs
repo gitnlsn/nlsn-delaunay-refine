@@ -12,7 +12,7 @@
 use nlsn_delaunay::elements::polyline::{vertex_pairs, Polyline};
 use nlsn_delaunay::elements::triangle::Triangle;
 use nlsn_delaunay::elements::vertex::Vertex;
-use nlsn_delaunay::planar::refine_params::RefineParams;
+use nlsn_delaunay::planar::refine_params::{RefineOutcome, RefineParams};
 use nlsn_delaunay::planar::triangulator::Triangulator;
 use nlsn_delaunay::properties::area::{area_segments, area_triangle};
 use nlsn_delaunay::properties::continence::Continence;
@@ -132,6 +132,18 @@ impl Domain {
     }
 
     pub fn mesh(&self, min_angle_deg: f64, max_area: Option<f64>) -> Triangulator {
+        self.mesh_with_outcome(min_angle_deg, max_area).0
+    }
+
+    /// The mesh together with what refinement claims about it.
+    ///
+    /// Separate from `mesh` because the outcome is a claim that can be wrong
+    /// independently of the mesh being wrong, and testing that claim needs both.
+    pub fn mesh_with_outcome(
+        &self,
+        min_angle_deg: f64,
+        max_area: Option<f64>,
+    ) -> (Triangulator, RefineOutcome) {
         let boundary = to_polyline(&self.boundary);
         let mut triangulator = Triangulator::new(&boundary);
 
@@ -148,9 +160,9 @@ impl Domain {
         // into swap along with it.
         params.max_steps = 20_000;
         params.max_triangles = 20_000;
-        triangulator.refine(params);
+        let outcome = triangulator.refine(params);
 
-        triangulator
+        (triangulator, outcome)
     }
 }
 
