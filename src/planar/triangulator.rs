@@ -17,10 +17,22 @@ pub struct Triangulator {
 }
 
 impl Triangulator {
+    /// The boundary is normalised to counter-clockwise winding.
+    ///
+    /// The kernel assumes that orientation throughout, and violating it does not
+    /// fail loudly -- `boundary::include` carves the exterior by walking outward
+    /// from the boundary edges, so with clockwise input it removes the interior
+    /// and returns an empty mesh with no error. A closed region means the same
+    /// thing whichever way it was traced, so this normalises rather than
+    /// demanding callers know. A degenerate loop has no winding and is left
+    /// alone, to be rejected later on its own terms.
     pub fn new(boundary: &Rc<Polyline>) -> Self {
+        let boundary = Polyline::into_counterclockwise(boundary)
+            .unwrap_or_else(|| Rc::clone(boundary));
+
         Self {
             triangulation: RefCell::new(Triangulation::new()),
-            boundary: Rc::clone(boundary),
+            boundary: Rc::clone(&boundary),
             holes: HashSet::new(),
             vertices: HashSet::new(),
             segments: HashSet::new(),
@@ -200,6 +212,10 @@ impl Triangulator {
      * hole, it is removed.
      */
     pub fn insert_hole(&mut self, hole: &Rc<Polyline>) -> Result<&Self, HashSet<Rc<Vertex>>> {
+        // Normalised for the same reason as the boundary: the kernel wants
+        // counter-clockwise holes too, and the caller has no way to know.
+        let hole = &Polyline::into_counterclockwise(hole).unwrap_or_else(|| Rc::clone(hole));
+
         let mut conflicting_vertices: HashSet<Rc<Vertex>> = HashSet::new();
 
         let is_hole_inside_boundary = Polyline::continence(&self.boundary, hole)

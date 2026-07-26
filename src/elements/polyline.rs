@@ -146,6 +146,33 @@ impl Polyline {
         return Polyline::new_closed(minified).unwrap();
     }
 
+    /// The same loop, wound counter-clockwise.
+    ///
+    /// The kernel assumes counter-clockwise input throughout -- `boundary::include`
+    /// carves the exterior away by walking outward from the boundary edges, so
+    /// given clockwise input "outward" points inward and the carve removes the
+    /// interior instead, leaving an empty mesh with no error.
+    ///
+    /// That precondition was unstated and unchecked, and a closed region means
+    /// the same thing whichever way it was traced, so normalising is better than
+    /// demanding callers know. Returns `None` for a loop enclosing no area,
+    /// which has no winding to speak of.
+    pub fn into_counterclockwise(polyline: &Rc<Self>) -> Option<Rc<Self>> {
+        if polyline.opened {
+            return Some(Rc::clone(polyline));
+        }
+
+        let pairs = vertex_pairs(&polyline.vertices, polyline.opened);
+        match try_segments_orientation(&pairs)? {
+            Orientation::Counterclockwise => Some(Rc::clone(polyline)),
+            _ => {
+                let mut reversed = polyline.vertices.clone();
+                reversed.reverse();
+                Polyline::new_closed(reversed).map(Rc::new)
+            }
+        }
+    }
+
     pub fn contains(&self, vertex: &Vertex) -> Option<Continence> {
         if self.opened {
             return None;
@@ -901,17 +928,31 @@ pub fn split_intersections(
     return splited_segments;
 }
 
-pub fn segments_orientation(vertex_pairs: &Vec<(Rc<Vertex>, Rc<Vertex>)>) -> Orientation {
+/// Winding of a closed loop, or `None` when it encloses no area.
+///
+/// `area_segments` is the trapezoid form, which is negative for
+/// counter-clockwise winding.
+pub fn try_segments_orientation(
+    vertex_pairs: &Vec<(Rc<Vertex>, Rc<Vertex>)>,
+) -> Option<Orientation> {
     let area = area_segments(vertex_pairs);
+
     if area < 0.0 {
-        return Orientation::Counterclockwise;
+        return Some(Orientation::Counterclockwise);
     }
-
     if area > 0.0 {
-        return Orientation::Clockwise;
+        return Some(Orientation::Clockwise);
     }
+    None
+}
 
-    panic!("Not expected to have zero area");
+/// Winding of a closed loop.
+///
+/// Panics on a degenerate loop. Prefer [`try_segments_orientation`] anywhere a
+/// caller can be handed arbitrary input -- in wasm a panic aborts the instance
+/// and takes the worker with it.
+pub fn segments_orientation(vertex_pairs: &Vec<(Rc<Vertex>, Rc<Vertex>)>) -> Orientation {
+    try_segments_orientation(vertex_pairs).expect("Not expected to have zero area")
 }
 
 #[cfg(test)]

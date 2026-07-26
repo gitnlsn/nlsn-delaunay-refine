@@ -58,6 +58,30 @@ fn loop_area(points: &[[f64; 2]]) -> f64 {
 }
 
 impl Domain {
+    /// Same shape, wound the other way.
+    ///
+    /// `Polyline::new_closed` accepts any vertex order, and which way a user
+    /// clicks when drawing decides the winding. A closed region means the same
+    /// thing either way, so the mesh should too.
+    pub fn reversed(&self) -> Domain {
+        let flip = |points: &[[f64; 2]]| {
+            let mut reversed = points.to_vec();
+            reversed.reverse();
+            reversed
+        };
+
+        Domain {
+            name: format!("{}_reversed", self.name),
+            boundary: flip(&self.boundary),
+            holes: self.holes.iter().map(|h| flip(h)).collect(),
+        }
+    }
+
+    /// Number of solid elements, for comparing two meshes coarsely.
+    pub fn element_count(&self, min_angle_deg: f64, max_area: Option<f64>) -> usize {
+        solid_triangles(&self.mesh(min_angle_deg, max_area)).len()
+    }
+
     /// Same shape, coordinates nudged off-axis.
     ///
     /// Every fixture written by hand ends up axis-aligned and symmetric, and
@@ -108,11 +132,6 @@ impl Domain {
     }
 
     pub fn mesh(&self, min_angle_deg: f64, max_area: Option<f64>) -> Triangulator {
-        // Polyline::new_closed accepts any vertex order while the kernel assumes
-        // counter-clockwise, so a fixture wound the wrong way would fail in a
-        // way that looks like a mesher bug. Catch it here instead.
-        self.assert_counterclockwise();
-
         let boundary = to_polyline(&self.boundary);
         let mut triangulator = Triangulator::new(&boundary);
 

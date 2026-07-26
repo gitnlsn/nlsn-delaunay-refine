@@ -120,6 +120,34 @@ fn drawn_arch() -> Domain {
     }
 }
 
+/// A convex triangle, drawn by hand: no axis-aligned edge, and — as every
+/// triangle except an equilateral one must — at least one corner below 60
+/// degrees.
+fn convex_triangle() -> Domain {
+    Domain {
+        name: "convex_triangle".to_string(),
+        boundary: vec![[26.0, 18.0], [64.0, 14.0], [42.0, 72.0]],
+        holes: vec![],
+    }
+}
+
+/// A convex pentagon, drawn by hand. Every interior angle is comfortably above
+/// 60 degrees, so nothing about sharp corners applies — it is simply a convex
+/// polygon, the easiest thing a mesher can be asked for.
+fn convex_pentagon() -> Domain {
+    Domain {
+        name: "convex_pentagon".to_string(),
+        boundary: vec![
+            [26.0, 44.0],
+            [27.0, 15.0],
+            [60.0, 16.0],
+            [63.0, 44.0],
+            [47.0, 72.0],
+        ],
+        holes: vec![],
+    }
+}
+
 fn corpus() -> Vec<Domain> {
     vec![
         square(),
@@ -129,6 +157,8 @@ fn corpus() -> Vec<Domain> {
         arch(),
         notched(),
         drawn_arch(),
+        convex_triangle(),
+        convex_pentagon(),
     ]
 }
 
@@ -293,6 +323,56 @@ fn jittered_variants_hold_invariants() {
     for domain in corpus() {
         run(&domain.jittered());
     }
+}
+
+#[test]
+fn convex_triangle_holds_invariants() {
+    run(&convex_triangle());
+}
+
+#[test]
+fn convex_pentagon_holds_invariants() {
+    run(&convex_pentagon());
+}
+
+/// A closed region means the same thing whichever way it was traced, so the
+/// mesh must not depend on it.
+///
+/// Nothing normalises winding: the kernel assumes counter-clockwise, and which
+/// way a user clicks when drawing decides what it gets. This is the property
+/// the corpus could not previously express, because the fixture helper asserted
+/// counter-clockwise winding rather than testing invariance to it.
+#[test]
+fn meshing_does_not_depend_on_winding() {
+    // Every fixture is reported, not just the first mismatch: which shapes
+    // depend on winding is the interesting signal.
+    let mut mismatches = Vec::new();
+
+    for domain in corpus() {
+        // Excluded: its element count varies run to run regardless of winding,
+        // from the area-inflation bug tracked on `drawn_arch_holds_invariants`.
+        // Comparing two draws of a moving target says nothing about winding.
+        if domain.name == "drawn_arch" {
+            continue;
+        }
+
+        let forward = domain.element_count(20.0, Some(40.0));
+        let reversed = domain.reversed().element_count(20.0, Some(40.0));
+
+        if forward == 0 || reversed == 0 || forward != reversed {
+            mismatches.push(format!(
+                "  {:<18} {:>6} forward, {:>6} reversed",
+                domain.name, forward, reversed
+            ));
+        }
+    }
+
+    assert!(
+        mismatches.is_empty(),
+        "meshing depends on winding for {} fixture(s):\n{}",
+        mismatches.len(),
+        mismatches.join("\n")
+    );
 }
 
 /// The corpus is only as good as its coverage, so pin down what it contains.
