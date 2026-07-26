@@ -26,7 +26,7 @@ const AREA_TOLERANCE: f64 = 1.0E-9;
 
 #[derive(Clone)]
 pub struct Domain {
-    pub name: &'static str,
+    pub name: String,
     pub boundary: Vec<[f64; 2]>,
     pub holes: Vec<Vec<[f64; 2]>>,
 }
@@ -58,6 +58,36 @@ fn loop_area(points: &[[f64; 2]]) -> f64 {
 }
 
 impl Domain {
+    /// Same shape, coordinates nudged off-axis.
+    ///
+    /// Every fixture written by hand ends up axis-aligned and symmetric, and
+    /// that is exactly the condition under which a reflex boundary's inner
+    /// edges happen to be Delaunay edges of the vertex set. Geometry drawn with
+    /// a mouse never is. Jittering keeps the topology identical while removing
+    /// the coincidence, so the fixture tests the shape rather than its
+    /// alignment.
+    ///
+    /// The offsets are a fixed function of position, not random: a fixture that
+    /// fails must fail the same way every run.
+    pub fn jittered(&self) -> Domain {
+        fn nudge(points: &[[f64; 2]]) -> Vec<[f64; 2]> {
+            points
+                .iter()
+                .enumerate()
+                .map(|(i, [x, y])| {
+                    let k = i as f64;
+                    [x + 0.31 * (k * 2.4).sin(), y + 0.29 * (k * 3.1).cos()]
+                })
+                .collect()
+        }
+
+        Domain {
+            name: format!("{}_jittered", self.name),
+            boundary: nudge(&self.boundary),
+            holes: self.holes.iter().map(|h| nudge(h)).collect(),
+        }
+    }
+
     /// Area the mesh is expected to cover.
     pub fn expected_area(&self) -> f64 {
         self.holes
@@ -78,6 +108,11 @@ impl Domain {
     }
 
     pub fn mesh(&self, min_angle_deg: f64, max_area: Option<f64>) -> Triangulator {
+        // Polyline::new_closed accepts any vertex order while the kernel assumes
+        // counter-clockwise, so a fixture wound the wrong way would fail in a
+        // way that looks like a mesher bug. Catch it here instead.
+        self.assert_counterclockwise();
+
         let boundary = to_polyline(&self.boundary);
         let mut triangulator = Triangulator::new(&boundary);
 
@@ -97,6 +132,35 @@ impl Domain {
         triangulator.refine(params);
 
         triangulator
+    }
+}
+
+impl Domain {
+    fn assert_counterclockwise(&self) {
+        let signed = |points: &[[f64; 2]]| -> f64 {
+            let vertices: Vec<Rc<Vertex>> = points
+                .iter()
+                .map(|p| Rc::new(Vertex::new(p[0], p[1])))
+                .collect();
+            area_segments(&vertex_pairs(&vertices, false))
+        };
+
+        // area_segments is the trapezoid form, which is *negative* for
+        // counter-clockwise winding -- the opposite sign convention to
+        // area_triangle. See polyline::segments_orientation.
+        assert!(
+            signed(&self.boundary) < 0.0,
+            "{}: boundary is wound clockwise; the kernel expects counter-clockwise",
+            self.name
+        );
+        for (index, hole) in self.holes.iter().enumerate() {
+            assert!(
+                signed(hole) < 0.0,
+                "{}: hole {} is wound clockwise",
+                self.name,
+                index
+            );
+        }
     }
 }
 
