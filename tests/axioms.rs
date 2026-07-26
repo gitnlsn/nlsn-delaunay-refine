@@ -87,9 +87,36 @@ fn equality_is_symmetric() {
 /// `polyline::subtraction` fails independently, so the boolean operations lean
 /// on the same tolerance.
 ///
-/// What it needs: one audited vertex-creation path that every insertion route
-/// goes through, bounds on the recovery and split loops, and explicit
-/// tolerances in the polyline booleans. A piece of work, not a patch.
+/// A second approach was then tried and also reverted: **snap rounding**.
+/// Quantise coordinates in `Vertex::new` -- the single funnel, since every
+/// computed vertex goes through it -- so that exact equality *becomes* the
+/// tolerant equality and is transitive by construction, with no call site
+/// changed.
+///
+/// It worked, as far as the law goes. Both these tests passed, and the mesher's
+/// own suite went fully green: 161 unit + 13 axioms + 7 corpus.
+///
+/// It failed on geometry. Two things were learned and are worth keeping:
+///
+///   - An *absolute* grid is the wrong shape. At 1e-14, matching the epsilon it
+///     replaces, a centroid came back as 0.66666666666667 against a true
+///     0.6666666666666666 -- two decimal digits gone. Worse, it reintroduces the
+///     scale-dependence that motivated moving to exact predicates in the first
+///     place. Masking low mantissa bits instead is relative and costs far less.
+///
+///   - Snapping puts a floor under how finely geometry can be subdivided, and
+///     refinement subdivides hardest exactly where that hurts: at sharp corners.
+///     The notched fixtures in `fea-wasm` stopped converging and ground to their
+///     step cap. Detecting the floor directly -- refusing a split whose midpoint
+///     rounds onto its own endpoint -- did not resolve it, so the stall has
+///     another cause as well.
+///
+/// What survived from that attempt: bounds on the two unbounded recovery loops,
+/// which were a latent hang regardless and are now committed.
+///
+/// So the remaining options are the ~190-site explicit-tolerance refactor, or
+/// snap rounding plus whatever is needed to make refinement converge under a
+/// resolution floor. Neither is a patch.
 #[test]
 #[ignore = "known: Vertex equality is approximate, therefore not transitive"]
 fn vertex_equality_is_transitive() {

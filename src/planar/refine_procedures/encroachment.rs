@@ -88,7 +88,22 @@ pub fn unencroach_segment(
 
     pending_edges.push(Rc::clone(&encroached_edge));
 
+    // Bounded. Each pass is meant to halve a subsegment and so make progress,
+    // but a split can legitimately decline to act -- `segment::include` bails
+    // when its cavity hull is not well formed -- and then the same edge is
+    // pushed back and the loop never ends. A segment cannot usefully be halved
+    // more than a few dozen times before the halves fall below any tolerance
+    // that matters, so this ceiling sits far above real work and only ever
+    // catches non-progress.
+    const MAX_SPLITS: usize = 256;
+    let mut splits = 0usize;
+
     while !pending_edges.is_empty() {
+        if splits >= MAX_SPLITS {
+            break;
+        }
+        splits += 1;
+
         let pending_edge = pending_edges.pop().unwrap();
 
         let (h1, h2, new_triangles, old_triangles) = split_segment(

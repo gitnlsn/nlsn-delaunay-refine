@@ -62,7 +62,21 @@ pub fn include(
     // }
 
     /* Inserts missing segments */
+    //
+    // Bounded for the same reason as the split loop in `encroachment`:
+    // `segment::include` can return without having recovered its segment, since
+    // its cavity hull is not always well formed, and this would then retry the
+    // same segment forever. One pass per segment plus generous slack for the
+    // subsegments a recovery can introduce.
+    let max_recoveries = hole_segments.len().saturating_mul(8).max(64);
+    let mut recoveries = 0usize;
+
     loop {
+        if recoveries >= max_recoveries {
+            break;
+        }
+        recoveries += 1;
+
         let existing_segments: HashSet<Rc<Edge>> = triangulation.edges();
 
         // Deterministic, not `find` over the HashSet. Segment recovery is the
