@@ -139,39 +139,17 @@ fn two_holes_holds_invariants() {
     run(&two_holes());
 }
 
-/// KNOWN FAILURE — small coverage shortfall at a reflex corner.
-///
-/// The mesh no longer contains elements outside the domain and no longer
-/// contains degenerate ones; what remains is roughly one element of *missing*
-/// coverage (~0.95% of the domain) at some quality targets.
-///
-/// A shortfall is the safer of the two failure modes — a solver assembled on
-/// this mesh would be solving a very slightly smaller domain, rather than one
-/// with spurious material outside it — but it is still wrong.
-///
-/// Likely cause: refusing to construct a degenerate element (see
-/// `solve_conflicts`) removes it from the adjacency map as well, so a later
-/// cavity expansion that would have crossed it finds no neighbour and stops
-/// early, leaving the gap. The fix is probably to keep the cavity walk
-/// connected across refused elements rather than to admit them.
+/// Regression: an L used to mesh with 637% excess area, 23 elements outside the
+/// domain and 12 degenerate ones, then with a ~1% coverage shortfall. One
+/// reflex corner, axis-aligned -- the mildest reflex case there is.
 #[test]
-#[ignore = "known: ~1 element of missing coverage at a reflex corner"]
 fn ell_holds_invariants() {
     run(&ell());
 }
 
-/// KNOWN FLAKE — passes roughly 7 runs in 10.
-///
-/// Conformity here still depends on `HashSet` iteration order somewhere in the
-/// kernel; the same input either meshes correctly or does not, run to run. The
-/// remaining order-dependence has not been located — `split_irregular`, hole
-/// ordering and hole segment recovery have all been made deterministic already.
-///
-/// Related to the unbounded-allocation flake tracked in `fea-wasm`
-/// (`known_issues::repeated_identical_requests_are_stable`); both are almost
-/// certainly the same underlying cause.
+/// Regression: this shape used to mesh correctly only about 3 runs in 10,
+/// depending on HashSet iteration order.
 #[test]
-#[ignore = "known flake: residual hash-order dependence, ~7/10"]
 fn arch_holds_invariants() {
     run(&arch());
 }

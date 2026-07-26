@@ -240,6 +240,62 @@ pub fn check_edge_manifoldness(triangulator: &Triangulator) -> Result<(), String
     Ok(())
 }
 
+/// An edge bordered by exactly one element must lie on the domain boundary.
+///
+/// This is what localises a gap. Area conservation says *how much* coverage is
+/// missing; it cannot say where. An interior edge with only one element beside
+/// it is the rim of a hole in the mesh, so listing those points straight at the
+/// problem.
+pub fn check_gaps(triangulator: &Triangulator, domain: &Domain) -> Result<(), String> {
+    let boundary = to_polyline(&domain.boundary);
+    let holes: Vec<Rc<Polyline>> = domain.holes.iter().map(|h| to_polyline(h)).collect();
+
+    let mut usage: HashMap<(u64, u64, u64, u64), (usize, (f64, f64))> = HashMap::new();
+
+    for triangle in solid_triangles(triangulator).iter() {
+        for (a, b) in [
+            (&triangle.v1, &triangle.v2),
+            (&triangle.v2, &triangle.v3),
+            (&triangle.v3, &triangle.v1),
+        ] {
+            let mut ends = [
+                (a.x.to_bits(), a.y.to_bits()),
+                (b.x.to_bits(), b.y.to_bits()),
+            ];
+            ends.sort();
+            let key = (ends[0].0, ends[0].1, ends[1].0, ends[1].1);
+            let midpoint = ((a.x + b.x) / 2.0, (a.y + b.y) / 2.0);
+            usage.entry(key).or_insert((0, midpoint)).0 += 1;
+        }
+    }
+
+    let mut rims: Vec<String> = usage
+        .values()
+        .filter(|(count, _)| *count == 1)
+        .filter(|(_, (x, y))| {
+            let midpoint = Vertex::new(*x, *y);
+            // On the outer boundary, or on any hole edge, is expected.
+            let on_outer = boundary.contains(&midpoint) == Some(Continence::Boundary);
+            let on_hole = holes
+                .iter()
+                .any(|hole| hole.contains(&midpoint) == Some(Continence::Boundary));
+            !on_outer && !on_hole
+        })
+        .map(|(_, (x, y))| format!("({:.4}, {:.4})", x, y))
+        .collect();
+
+    if !rims.is_empty() {
+        rims.sort();
+        return Err(format!(
+            "{} interior edge(s) border only one element, so the mesh has a gap. \
+             Edge midpoints: {:?}",
+            rims.len(),
+            &rims[..rims.len().min(6)]
+        ));
+    }
+    Ok(())
+}
+
 /// Runs every invariant and reports all failures at once.
 ///
 /// Reporting them together matters: a boundary failure usually trips several
@@ -251,6 +307,7 @@ pub fn assert_mesh_invariants(triangulator: &Triangulator, domain: &Domain, cont
         ("domain membership", check_domain_membership(triangulator, domain)),
         ("orientation", check_orientation(triangulator)),
         ("edge manifoldness", check_edge_manifoldness(triangulator)),
+        ("gaps", check_gaps(triangulator, domain)),
     ];
 
     let failures: Vec<String> = checks
