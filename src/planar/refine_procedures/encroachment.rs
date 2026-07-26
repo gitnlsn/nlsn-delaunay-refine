@@ -1,5 +1,5 @@
 use crate::elements::{edge::*, polyline::*, triangle::*, vertex::*};
-use crate::planar::{triangulation::*, triangulation_procedures};
+use crate::planar::{sharp_corners, triangulation::*, triangulation_procedures};
 use crate::properties::continence::*;
 
 use std::collections::{HashMap, HashSet};
@@ -86,6 +86,18 @@ pub fn unencroach_segment(
     let mut new_edges: HashSet<Rc<Edge>> = HashSet::new();
     let mut pending_edges: Vec<Rc<Edge>> = Vec::new();
 
+    // Derived here rather than threaded through the public signatures: the
+    // boundary and holes are already in hand, and this is once per call rather
+    // than once per split.
+    let sharp_floors = match boundary {
+        Some(boundary) => sharp_corners::floors(&sharp_corners::detect(
+            boundary,
+            holes.iter().cloned(),
+            sharp_corners::SHARP_CORNER_DEGREES,
+        )),
+        None => HashMap::new(),
+    };
+
     pending_edges.push(Rc::clone(&encroached_edge));
 
     // Bounded. Each pass is meant to halve a subsegment and so make progress,
@@ -112,6 +124,7 @@ pub fn unencroach_segment(
             segment_contraints,
             boundary,
             holes,
+            &sharp_floors,
         );
 
         included_triangles = included_triangles
@@ -199,6 +212,7 @@ fn split_segment(
     segment_constraints: &HashSet<Rc<Edge>>,
     boundary: &Option<Rc<Polyline>>,
     holes: &HashSet<Rc<Polyline>>,
+    sharp_floors: &HashMap<Rc<Vertex>, f64>,
 ) -> (
     Rc<Edge>,
     Rc<Edge>,
@@ -210,6 +224,27 @@ fn split_segment(
         .filter(|&e| e != segment && e != &Rc::new(segment.opposite()))
         .cloned()
         .collect();
+
+    // Stop at a sharp input corner.
+    //
+    // Where two input segments meet below ~60 degrees, the elements filling
+    // that wedge are forced to be at least as bad as the angle. Splitting
+    // further cannot reach the requested quality -- the corner is the
+    // constraint, not the mesh -- and each split encroaches the neighbouring
+    // segment across the apex, which is what drives refinement to its step cap
+    // without converging.
+    //
+    // Refusing here is the honest answer: the geometry needs changing, by
+    // rounding the corner off or accepting the local quality. The corner is
+    // reported so a caller can offer exactly that.
+    if sharp_corners::is_at_floor(&segment.v1, &segment.v2, sharp_floors) {
+        return (
+            Rc::clone(segment),
+            Rc::clone(segment),
+            HashSet::new(),
+            HashSet::new(),
+        );
+    }
 
     let segment_midpoint = Rc::new(segment.midpoint());
     let half_1 = Rc::new(Edge::new(&segment.v1, &segment_midpoint));
@@ -384,6 +419,7 @@ mod split {
             &HashSet::new(),
             &Some(boundary),
             &HashSet::new(),
+            &HashMap::new(),
         );
 
         assert_eq!(h1, Rc::new(Edge::new(&v2, &midpoint)));
@@ -445,6 +481,7 @@ mod split {
             &HashSet::new(),
             &Some(boundary),
             &vec![Rc::clone(&hole)].iter().cloned().collect(),
+            &HashMap::new(),
         );
 
         /*

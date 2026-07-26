@@ -30,6 +30,7 @@ pub mod properties {
 pub mod planar {
     pub mod mesh;
     pub mod refine_params;
+    pub mod sharp_corners;
     pub mod triangulation;
     pub mod triangulation_data;
     pub mod triangulator;
