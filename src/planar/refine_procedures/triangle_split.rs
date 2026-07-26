@@ -1,6 +1,8 @@
 use crate::elements::{edge::*, polyline::*, triangle::*, vertex::*};
 use crate::planar::{
-    refine_params::RefineParams, refine_procedures::encroachment, triangulation::*,
+    refine_params::{RefineOutcome, RefineParams},
+    refine_procedures::encroachment,
+    triangulation::*,
     triangulation_procedures,
 };
 
@@ -14,7 +16,15 @@ use std::rc::Rc;
  * Determines if the triangle is irregular according to quality ratio
  */
 fn is_irregular_triangle(triangle: &Triangle, params: &RefineParams) -> bool {
-    let this_quality = triangle.quality().unwrap();
+    // A degenerate triangle has no defined circumradius, so it has no quality
+    // ratio either. It cannot be improved by circumcenter insertion -- the
+    // circumcenter does not exist -- so reporting it as irregular would queue
+    // work that can never succeed and spin the refinement loop.
+    let this_quality = match triangle.quality() {
+        Some(quality) => quality,
+        None => return false,
+    };
+
     let no_quality = float_cmp::approx_eq!(
         f64,
         this_quality,
@@ -29,7 +39,12 @@ fn is_irregular_triangle(triangle: &Triangle, params: &RefineParams) -> bool {
  * Determines if the triangle is larger than threshould
  */
 fn is_large_triangle(triangle: &Triangle, params: &RefineParams) -> bool {
-    let this_area = triangle.area().unwrap();
+    // Degenerate triangles have zero area; they are never "too large".
+    let this_area = match triangle.area() {
+        Some(area) => area,
+        None => return false,
+    };
+
     let greater_area: bool = match params.max_area {
         Some(max_area) => {
             float_cmp::approx_eq!(f64, this_area, max_area, epsilon = 1.0E-14f64)
@@ -108,7 +123,7 @@ pub fn split_irregular(
     segment_contraints: &HashSet<Rc<Edge>>,
     boundary: &Option<Rc<Polyline>>,
     holes: &HashSet<Rc<Polyline>>,
-) -> HashMap<Rc<Edge>, Rc<Edge>> {
+) -> (HashMap<Rc<Edge>, Rc<Edge>>, RefineOutcome) {
     let mut segment_contraints: HashSet<Rc<Edge>> = segment_contraints.iter().cloned().collect();
 
     let critical_triangles = triangulation
@@ -133,7 +148,25 @@ pub fn split_irregular(
 
     let mut split_map: HashMap<Rc<Edge>, Rc<Edge>> = HashMap::new();
 
+    let mut outcome = RefineOutcome::Converged;
+    let mut steps: usize = 0;
+
     loop {
+        // Bounded so a non-terminating configuration degrades into a usable
+        // mesh plus a flag, instead of freezing the caller. In the browser this
+        // loop runs inside a worker, where an unbounded spin is unrecoverable.
+        if steps >= params.max_steps {
+            outcome = RefineOutcome::HitStepLimit;
+            break;
+        }
+        // O(1) on the triangle set. Counting distinct vertices here instead
+        // would walk and deduplicate every triangle on every iteration.
+        if triangulation.triangles.len() >= params.max_triangles {
+            outcome = RefineOutcome::HitSizeLimit;
+            break;
+        }
+        steps += 1;
+
         let triangle;
         if let Some(irregular_triangle) = take_worst(&mut irregular_triangles) {
             triangle = irregular_triangle;
@@ -163,7 +196,15 @@ pub fn split_irregular(
             boundary,
             holes,
         ) {
-            Ok((included_triangles, removed_triangles)) => {
+            // The triangle has no circumcenter to insert. It was already
+            // excluded from the bad-triangle sets, so simply move on rather
+            // than unwrapping a None and taking the whole worker down.
+            InsertionOutcome::Degenerate => continue,
+
+            InsertionOutcome::Inserted {
+                included: included_triangles,
+                removed: removed_triangles,
+            } => {
                 for new_triangle in included_triangles.iter().filter(|t| !t.is_ghost()) {
                     if is_irregular_triangle(new_triangle, params) {
                         irregular_triangles.insert(Rc::clone(new_triangle));
@@ -179,11 +220,13 @@ pub fn split_irregular(
                     large_triangles.remove(old_triangle);
                 }
             }
-            Err(encroachments) => {
-                let mut vertices = vec![Rc::new(triangle.circumcenter().unwrap())]
-                    .iter()
-                    .cloned()
-                    .collect();
+            InsertionOutcome::Encroached {
+                edges: encroachments,
+                circumcenter,
+            } => {
+                // Carried out of the insertion attempt rather than recomputed,
+                // which also removes a second unwrap on the same Option.
+                let mut vertices = vec![circumcenter].iter().cloned().collect();
 
                 for encroached_edge in encroachments.iter() {
                     let (new_edges, included_triangles, removed_triangles) =
@@ -221,8 +264,25 @@ pub fn split_irregular(
             }
         }
     }
-    return split_map;
+    return (split_map, outcome);
 } /* end - split */
+
+/// Result of attempting to insert a triangle's circumcenter.
+enum InsertionOutcome {
+    Inserted {
+        included: HashSet<Rc<Triangle>>,
+        removed: HashSet<Rc<Triangle>>,
+    },
+    /// The circumcenter would encroach these constrained segments, so they must
+    /// be split instead. Carries the circumcenter so the caller does not have
+    /// to recompute it.
+    Encroached {
+        edges: HashSet<Rc<Edge>>,
+        circumcenter: Rc<Vertex>,
+    },
+    /// The triangle is degenerate and has no circumcenter.
+    Degenerate,
+}
 
 /**
  * Tries to insert a triangle's circumcenter.
@@ -238,8 +298,15 @@ fn try_circumcenter_insertion(
     segment_constraints: &HashSet<Rc<Edge>>,
     boundary: &Option<Rc<Polyline>>,
     holes: &HashSet<Rc<Polyline>>,
-) -> Result<(HashSet<Rc<Triangle>>, HashSet<Rc<Triangle>>), HashSet<Rc<Edge>>> {
-    let circumcenter = Rc::new(triangle.circumcenter().unwrap());
+) -> InsertionOutcome {
+    // Degenerate triangles have no circumcenter. Reported rather than
+    // unwrapped: this is reachable on real input, and a panic here aborts the
+    // wasm instance.
+    let circumcenter = match triangle.circumcenter() {
+        Some(circumcenter) => Rc::new(circumcenter),
+        None => return InsertionOutcome::Degenerate,
+    };
+
     let mut conflict_map: HashMap<Rc<Triangle>, Vec<Rc<Vertex>>> = HashMap::new();
 
     triangulation_procedures::vertices::distribute_conflicts_over_triangulation(
@@ -276,10 +343,16 @@ fn try_circumcenter_insertion(
         for t in removed_triangles.iter() {
             triangulation.include_triangle(t);
         }
-        return Err(encroachments);
+        return InsertionOutcome::Encroached {
+            edges: encroachments,
+            circumcenter,
+        };
     }
 
-    return Ok((included_triangles, removed_triangles));
+    return InsertionOutcome::Inserted {
+        included: included_triangles,
+        removed: removed_triangles,
+    };
 }
 
 #[cfg(test)]
@@ -319,7 +392,7 @@ mod split {
             boundary.into_edges().iter().cloned().collect();
 
         /* unencroach */
-        let (mapping, included_triangles, removed_triangles) = encroachment::unencroach(
+        let (mapping, _included_triangles, _removed_triangles) = encroachment::unencroach(
             &mut triangulation,
             &boundary.into_edges().iter().cloned().collect(),
             &Some(Rc::clone(&boundary)),
@@ -341,13 +414,14 @@ mod split {
             &RefineParams {
                 max_area: None, /* not used */
                 quality_ratio: 1.0,
+                ..Default::default()
             },
             &segment_constraints,
             &Some(Rc::clone(&boundary)),
             &HashSet::new(),
         );
 
-        let solid_triangles: HashSet<Rc<Triangle>> = triangulation
+        let _solid_triangles: HashSet<Rc<Triangle>> = triangulation
             .triangles
             .iter()
             .filter(|t| !t.is_ghost())
@@ -510,10 +584,10 @@ mod try_circumcenter_insertion {
             &HashSet::new(),
         );
 
-        let s1 = Rc::new(Edge::new(&p1, &p2));
+        let _s1 = Rc::new(Edge::new(&p1, &p2));
         let s2 = Rc::new(Edge::new(&p2, &p3));
-        let s3 = Rc::new(Edge::new(&p3, &p4));
-        let s4 = Rc::new(Edge::new(&p4, &p1));
+        let _s3 = Rc::new(Edge::new(&p3, &p4));
+        let _s4 = Rc::new(Edge::new(&p4, &p1));
 
         let mut segment_constraints = HashSet::new();
         segment_constraints.insert(Rc::clone(&s2));
@@ -538,9 +612,10 @@ mod try_circumcenter_insertion {
             &HashSet::new(),
         );
 
-        assert!(result.is_err());
-        if let Err(encroachment) = result {
-            assert!(encroachment.contains(&s2));
+        match result {
+            InsertionOutcome::Encroached { edges, .. } => assert!(edges.contains(&s2)),
+            InsertionOutcome::Inserted { .. } => panic!("expected the circumcenter to encroach s2"),
+            InsertionOutcome::Degenerate => panic!("triangle unexpectedly degenerate"),
         }
     }
 }

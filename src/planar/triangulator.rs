@@ -5,7 +5,7 @@ use crate::properties::continence::*;
 use crate::planar::{refine_procedures, triangulation_procedures};
 
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::rc::Rc;
 
 pub struct Triangulator {
@@ -253,7 +253,10 @@ impl Triangulator {
      * Refine the triangulation. Raises triangulation error if any.
      * Else refines ans returns the triangulation.
      */
-    pub fn refine(&mut self, params: RefineParams) -> &Self {
+    /// Returns how refinement terminated. Callers driving a UI should surface
+    /// [`RefineOutcome::terminated_early`], because the mesh is still valid in
+    /// that case but does not meet the requested quality everywhere.
+    pub fn refine(&mut self, params: RefineParams) -> RefineOutcome {
         let mut segment_constraints: HashSet<Rc<Edge>> = self
             .holes
             .iter()
@@ -263,7 +266,7 @@ impl Triangulator {
             .chain(self.segments.iter().cloned())
             .collect();
 
-        let (segments_splitting, included_triangles, removed_triangles) =
+        let (segments_splitting, _included_triangles, _removed_triangles) =
             refine_procedures::encroachment::unencroach(
                 &mut self.triangulation.borrow_mut(),
                 &segment_constraints,
@@ -284,7 +287,9 @@ impl Triangulator {
             .cloned()
             .collect();
 
-        let segments_splitting = refine_procedures::triangle_split::split_irregular(
+        /* The splitting map is dropped: `segment_constraints` is local to this
+        method, so there is nothing left to keep in sync after the last split. */
+        let (_segments_splitting, outcome) = refine_procedures::triangle_split::split_irregular(
             &mut self.triangulation.borrow_mut(),
             &params,
             &segment_constraints,
@@ -292,20 +297,7 @@ impl Triangulator {
             &self.holes,
         );
 
-        segment_constraints = segment_constraints
-            .iter()
-            .filter(|&s| {
-                let removed_segments = segments_splitting
-                    .values()
-                    .cloned()
-                    .collect::<HashSet<Rc<Edge>>>();
-                return !removed_segments.contains(s) && !removed_segments.contains(&s.opposite());
-            })
-            .chain(segments_splitting.keys())
-            .cloned()
-            .collect();
-
-        return self;
+        return outcome;
     }
 
     /**
@@ -525,7 +517,7 @@ mod insert_holes {
         let hole_2 = Rc::new(Polyline::new_closed(hole2_vertices).unwrap());
 
         let mut triangulator = Triangulator::new(&boundary);
-        triangulator.insert_hole(&hole_1);
+        triangulator.insert_hole(&hole_1).unwrap();
         let result = triangulator.insert_hole(&hole_2);
 
         assert!(result.is_ok());
@@ -573,7 +565,7 @@ mod insert_holes {
         let hole_2 = Rc::new(Polyline::new_closed(hole2_vertices).unwrap());
 
         let mut triangulator = Triangulator::new(&boundary);
-        triangulator.insert_hole(&hole_1);
+        triangulator.insert_hole(&hole_1).unwrap();
         let result = triangulator.insert_hole(&hole_2);
 
         assert!(result.is_err());
@@ -629,7 +621,7 @@ mod insert_holes {
         let hole = Rc::new(Polyline::new_closed(hole_vertices).unwrap());
 
         let mut triangulator = Triangulator::new(&boundary);
-        triangulator.insert_segments(&segments_constrains);
+        triangulator.insert_segments(&segments_constrains).unwrap();
         let result = triangulator.insert_hole(&hole);
 
         assert!(result.is_err());
@@ -772,7 +764,7 @@ mod insert_vertices {
         inner_vertices.insert(Rc::clone(&v24));
 
         let mut triangulator = Triangulator::new(&boundary);
-        triangulator.insert_hole(&hole);
+        triangulator.insert_hole(&hole).unwrap();
         let result = triangulator.insert_vertices(&inner_vertices);
         assert!(result.is_err());
 
@@ -895,7 +887,7 @@ mod insert_segments {
         vertices.insert(Rc::clone(&v22));
 
         let mut triangulator = Triangulator::new(&boundary);
-        triangulator.insert_vertices(&vertices);
+        triangulator.insert_vertices(&vertices).unwrap();
         assert!(!triangulator.vertices.is_empty());
 
         let result = triangulator.insert_segments(&segments);
@@ -952,7 +944,7 @@ mod insert_segments {
             .collect();
 
         let mut triangulator = Triangulator::new(&boundary);
-        triangulator.insert_hole(&hole);
+        triangulator.insert_hole(&hole).unwrap();
         let result = triangulator.insert_segments(&segments_set);
 
         assert!(result.is_err());
@@ -1012,7 +1004,7 @@ mod insert_segments {
             .collect();
 
         let mut triangulator = Triangulator::new(&boundary);
-        triangulator.insert_hole(&hole);
+        triangulator.insert_hole(&hole).unwrap();
         assert!(triangulator.holes.contains(&hole));
 
         let result = triangulator.insert_segments(&segments_set);
@@ -1074,7 +1066,7 @@ mod insert_segments {
             .collect();
 
         let mut triangulator = Triangulator::new(&boundary);
-        triangulator.insert_hole(&hole);
+        triangulator.insert_hole(&hole).unwrap();
         let result = triangulator.insert_segments(&segments_set);
 
         assert!(result.is_err());
