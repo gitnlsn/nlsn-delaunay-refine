@@ -28,6 +28,7 @@ pub mod properties {
 
 /* Data structure that resumes lib main output */
 pub mod planar {
+    pub mod mesh;
     pub mod refine_params;
     pub mod triangulation;
     pub mod triangulation_data;
@@ -56,7 +57,8 @@ pub use crate::elements::{
 };
 
 pub use crate::planar::{
-    triangulation::Triangulation, 
+    mesh::FlatMesh,
+    refine_params::{RefineOutcome, RefineParams},
+    triangulation::Triangulation,
     triangulator::Triangulator,
-    refine_params::RefineParams,
 };
