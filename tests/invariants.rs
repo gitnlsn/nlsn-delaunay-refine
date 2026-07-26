@@ -31,7 +31,7 @@ pub struct Domain {
     pub holes: Vec<Vec<[f64; 2]>>,
 }
 
-fn to_polyline(points: &[[f64; 2]]) -> Rc<Polyline> {
+pub fn to_polyline(points: &[[f64; 2]]) -> Rc<Polyline> {
     Rc::new(
         Polyline::new_closed(
             points
@@ -183,7 +183,7 @@ impl Domain {
     }
 }
 
-fn solid_triangles(triangulator: &Triangulator) -> Vec<Rc<Triangle>> {
+pub fn solid_triangles(triangulator: &Triangulator) -> Vec<Rc<Triangle>> {
     triangulator
         .triangulation
         .borrow()

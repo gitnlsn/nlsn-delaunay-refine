@@ -148,6 +148,25 @@ fn convex_pentagon() -> Domain {
     }
 }
 
+/// A convex quadrilateral, drawn by hand and slightly rotated — no edge
+/// axis-aligned, all corners near 90 degrees.
+///
+/// Reported meshing three different ways depending only on the area target:
+/// an unmeshed gap at 1%, apparently clean at 0.4%, a 2.61 degree sliver at
+/// 0.25%. Coordinates read off the screenshot.
+fn rotated_quad() -> Domain {
+    Domain {
+        name: "rotated_quad".to_string(),
+        boundary: vec![
+            [25.8, 22.5],
+            [81.4, 25.7],
+            [76.2, 67.0],
+            [25.4, 64.3],
+        ],
+        holes: vec![],
+    }
+}
+
 fn corpus() -> Vec<Domain> {
     vec![
         square(),
@@ -159,6 +178,7 @@ fn corpus() -> Vec<Domain> {
         drawn_arch(),
         convex_triangle(),
         convex_pentagon(),
+        rotated_quad(),
     ]
 }
 
@@ -335,6 +355,24 @@ fn convex_pentagon_holds_invariants() {
     run(&convex_pentagon());
 }
 
+/// The reported case, at the three area targets that gave three symptoms.
+///
+/// Swept rather than spot-checked: the same shape meshes cleanly at 0.4% while
+/// failing either side of it, so a single target proves nothing.
+#[test]
+#[ignore = "known bug: hash-order-dependent cavity seed, see tests/determinism_matrix.rs"]
+fn rotated_quad_holds_invariants_across_area_targets() {
+    let domain = rotated_quad();
+    for max_area in [100.0, 40.0, 25.0] {
+        let triangulator = domain.mesh(25.0, Some(max_area));
+        assert_mesh_invariants(
+            &triangulator,
+            &domain,
+            &format!("min_angle 25deg, max_area {}", max_area),
+        );
+    }
+}
+
 /// A closed region means the same thing whichever way it was traced, so the
 /// mesh must not depend on it.
 ///
@@ -349,10 +387,11 @@ fn meshing_does_not_depend_on_winding() {
     let mut mismatches = Vec::new();
 
     for domain in corpus() {
-        // Excluded: its element count varies run to run regardless of winding,
-        // from the area-inflation bug tracked on `drawn_arch_holds_invariants`.
-        // Comparing two draws of a moving target says nothing about winding.
-        if domain.name == "drawn_arch" {
+        // Excluded: their element counts vary run to run regardless of winding,
+        // because the mesher is not yet deterministic on non-axis-aligned input
+        // -- see `tests/determinism_matrix.rs`. Comparing two draws of a moving
+        // target says nothing about winding either way.
+        if domain.name == "drawn_arch" || domain.name == "rotated_quad" {
             continue;
         }
 
