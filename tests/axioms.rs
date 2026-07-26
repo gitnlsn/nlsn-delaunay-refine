@@ -75,8 +75,21 @@ fn equality_is_symmetric() {
 /// triangulation?" has no single well-defined answer.
 ///
 /// Fixing it means making vertex identity exact and pushing tolerance into the
-/// explicit geometric predicates, where it belongs — a real semantic change,
-/// deliberately not made yet.
+/// explicit geometric predicates, where it belongs.
+///
+/// That was attempted and reverted. It is not a localised change: refinement
+/// stops converging, because the mesher relies on approximate identity to merge
+/// the same geometric point reached by two routes that differ in their last
+/// bits. Adding explicit snapping in `vertices::include` was not enough --
+/// `try_circumcenter_insertion` reaches `solve_conflicts` directly and bypasses
+/// it; guarding that was not enough either, because `unencroach_segment`'s
+/// split loop is unbounded and a split that declines to act spins it forever.
+/// `polyline::subtraction` fails independently, so the boolean operations lean
+/// on the same tolerance.
+///
+/// What it needs: one audited vertex-creation path that every insertion route
+/// goes through, bounds on the recovery and split loops, and explicit
+/// tolerances in the polyline booleans. A piece of work, not a patch.
 #[test]
 #[ignore = "known: Vertex equality is approximate, therefore not transitive"]
 fn vertex_equality_is_transitive() {
