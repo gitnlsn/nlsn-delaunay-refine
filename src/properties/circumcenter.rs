@@ -1,5 +1,4 @@
 use crate::elements::vertex::*;
-use nalgebra::{Matrix2, Matrix2x1};
 
 pub fn circumcenter(v1: &Vertex, v2: &Vertex, v3: &Vertex) -> Option<Vertex> {
     /*
@@ -19,23 +18,27 @@ pub fn circumcenter(v1: &Vertex, v2: &Vertex, v3: &Vertex) -> Option<Vertex> {
     let x3 = v3.x;
     let y3 = v3.y;
 
-    let matrix_a = Matrix2::new(x3 - x1, y3 - y1, x2 - x1, y2 - y1);
+    // Coefficient matrix A = [[a11 a12], [a21 a22]], singular exactly when the
+    // triangle is degenerate (the three vertices are collinear).
+    let a11 = x3 - x1;
+    let a12 = y3 - y1;
+    let a21 = x2 - x1;
+    let a22 = y2 - y1;
 
-    if !matrix_a.is_invertible() {
+    let determinant = a11 * a22 - a12 * a21;
+
+    if determinant == 0.0 {
         return None;
     }
 
-    let matrix_a_inv = matrix_a.try_inverse().unwrap();
+    let b1 = x3.powi(2) - x1.powi(2) + y3.powi(2) - y1.powi(2);
+    let b2 = x2.powi(2) - x1.powi(2) + y2.powi(2) - y1.powi(2);
 
-    let matrix_b = Matrix2x1::new(
-        x3.powi(2) - x1.powi(2) + y3.powi(2) - y1.powi(2),
-        x2.powi(2) - x1.powi(2) + y2.powi(2) - y1.powi(2),
-    );
-
-    let center_matrix = 0.5 * matrix_a_inv * matrix_b;
-
-    let xc = center_matrix[0];
-    let yc = center_matrix[1];
+    // Cramer's rule: A^-1 * b = adj(A) * b / det(A), with the single division
+    // applied last so the solve keeps one rounding step per component instead of
+    // rounding the inverse entries first.
+    let xc = 0.5 * (a22 * b1 - a12 * b2) / determinant;
+    let yc = 0.5 * (a11 * b2 - a21 * b1) / determinant;
 
     return Some(Vertex::new(xc, yc));
 }

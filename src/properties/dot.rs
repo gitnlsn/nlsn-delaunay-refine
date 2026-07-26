@@ -1,8 +1,4 @@
-extern crate nalgebra;
-
 use crate::elements::vertex::*;
-
-use nalgebra::Vector2;
 
 /**
  * Calculates dot product of oriented segments ab and cd
@@ -20,11 +16,11 @@ pub fn dot(a: &Vertex, b: &Vertex, c: &Vertex, d: &Vertex) -> f64 {
     let x4 = d.x;
     let y4 = d.y;
 
-    let ab = Vector2::new(x2 - x1, y2 - y1);
+    let (ab_x, ab_y) = (x2 - x1, y2 - y1);
 
-    let cd = Vector2::new(x4 - x3, y4 - y3);
+    let (cd_x, cd_y) = (x4 - x3, y4 - y3);
 
-    return ab.dot(&cd);
+    return ab_x * cd_x + ab_y * cd_y;
 }
 
 #[cfg(test)]

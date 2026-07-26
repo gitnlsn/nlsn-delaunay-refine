@@ -40,7 +40,6 @@ cli = [
 # --- library dependencies: must stay wasm-clean ---
 [dependencies]
 float-cmp = "0.10"
-nalgebra = { version = "0.34", default-features = false, features = ["std"] }
 num = { version = "0.4", default-features = false, features = ["std"] }
 robust = "1.2"
 

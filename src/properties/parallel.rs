@@ -1,11 +1,19 @@
-extern crate nalgebra;
-
 use crate::elements::vertex::*;
-
-use nalgebra::Matrix2;
 
 /**
  * Checks if ab is parallel to cd
+ *
+ * The two segments meet in exactly one point iff the 2x2 system that solves for
+ * that point is invertible, so this is a test for a singular coefficient matrix
+ *
+ * ```text
+ * [-(y2-y1)  (x2-x1)]
+ * [-(y4-y3)  (x4-x3)]
+ * ```
+ *
+ * whose determinant reduces to the cross product of the direction vectors.
+ * The comparison is against exact zero, matching the singularity test this
+ * previously delegated to nalgebra.
  */
 pub fn parallel(a: &Vertex, b: &Vertex, c: &Vertex, d: &Vertex) -> bool {
     let x1 = a.x;
@@ -20,8 +28,8 @@ pub fn parallel(a: &Vertex, b: &Vertex, c: &Vertex, d: &Vertex) -> bool {
     let x4 = d.x;
     let y4 = d.y;
 
-    let matrix_a = Matrix2::new(-(y2 - y1), x2 - x1, -(y4 - y3), x4 - x3);
-    return !matrix_a.is_invertible();
+    let determinant = -(y2 - y1) * (x4 - x3) - (x2 - x1) * -(y4 - y3);
+    return determinant == 0.0;
 }
 
 #[cfg(test)]

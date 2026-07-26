@@ -1,12 +1,9 @@
 #![macro_use]
 extern crate float_cmp;
 
-extern crate nalgebra;
-
 use crate::elements::bounding_box::*;
 use crate::elements::vertex::*;
 
-use nalgebra::{Matrix2, Matrix2x1};
 use std::rc::Rc;
 
 /**
@@ -79,42 +76,40 @@ fn intersection_vertex(
     let x4 = v4.x;
     let y4 = v4.y;
 
-    let matrix_a = Matrix2::new(-(y2 - y1), x2 - x1, -(y4 - y3), x4 - x3);
+    /* Each line in the form -(dy)*x + (dx)*y = y0*dx - x0*dy, stacked into A*p = b */
+    let a11 = -(y2 - y1);
+    let a12 = x2 - x1;
+    let a21 = -(y4 - y3);
+    let a22 = x4 - x3;
 
-    let matrix_b = Matrix2x1::new(
-        y1 * (x2 - x1) - x1 * (y2 - y1),
-        y3 * (x4 - x3) - x3 * (y4 - y3),
-    );
+    let b1 = y1 * (x2 - x1) - x1 * (y2 - y1);
+    let b2 = y3 * (x4 - x3) - x3 * (y4 - y3);
 
-    if !matrix_a.is_invertible() {
+    let determinant = a11 * a22 - a12 * a21;
+
+    if determinant == 0.0 {
         /* Lines are coincident */
-        let possible_middle_point = Matrix2x1::new(
-            (bbox.origin.x + bbox.destin.x) / 2.0,
-            (bbox.origin.y + bbox.destin.y) / 2.0,
-        );
+        let middle_x = (bbox.origin.x + bbox.destin.x) / 2.0;
+        let middle_y = (bbox.origin.y + bbox.destin.y) / 2.0;
 
-        let eval = matrix_a * possible_middle_point - matrix_b;
+        /* Residual of A*p - b tells coincident lines apart from merely parallel ones */
+        let eval_1 = a11 * middle_x + a12 * middle_y - b1;
+        let eval_2 = a21 * middle_x + a22 * middle_y - b2;
 
-        if float_cmp::approx_eq!(f64, eval[0], 0.0, epsilon = 1.0E-14f64)
-            && float_cmp::approx_eq!(f64, eval[1], 0.0, epsilon = 1.0E-14f64)
+        if float_cmp::approx_eq!(f64, eval_1, 0.0, epsilon = 1.0E-14f64)
+            && float_cmp::approx_eq!(f64, eval_2, 0.0, epsilon = 1.0E-14f64)
         {
             /* Return mid-point as intersection representation */
-            return Some(Vertex::new(
-                possible_middle_point[0],
-                possible_middle_point[1],
-            ));
+            return Some(Vertex::new(middle_x, middle_y));
         }
 
         /* Lines are parallel */
         return None;
     }
 
-    let matrix_a_inv = matrix_a.try_inverse().unwrap();
-
-    let intersection_matrix = matrix_a_inv * matrix_b;
-
-    let intersection_x = intersection_matrix[0];
-    let intersection_y = intersection_matrix[1];
+    /* Cramer's rule, dividing once at the end -- see circumcenter for the rationale */
+    let intersection_x = (a22 * b1 - a12 * b2) / determinant;
+    let intersection_y = (a11 * b2 - a21 * b1) / determinant;
 
     return Some(Vertex::new(intersection_x, intersection_y));
 }

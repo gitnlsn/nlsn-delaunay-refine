@@ -1,19 +1,18 @@
-extern crate nalgebra;
-
 use crate::elements::vertex::*;
 use crate::properties::orientation::*;
-
-use nalgebra::Vector2;
 
 /**
  * Calculates the angle ABC
  */
 pub fn angle(a: &Vertex, b: &Vertex, c: &Vertex) -> Option<f64> {
-    let ba: Vector2<f64> = Vector2::new(a.x - b.x, a.y - b.y);
+    let (ba_x, ba_y) = (a.x - b.x, a.y - b.y);
 
-    let bc: Vector2<f64> = Vector2::new(c.x - b.x, c.y - b.y);
+    let (bc_x, bc_y) = (c.x - b.x, c.y - b.y);
 
-    let cos_theta = ba.dot(&bc) / (ba.norm() * bc.norm());
+    let ba_norm = (ba_x * ba_x + ba_y * ba_y).sqrt();
+    let bc_norm = (bc_x * bc_x + bc_y * bc_y).sqrt();
+
+    let cos_theta = (ba_x * bc_x + ba_y * bc_y) / (ba_norm * bc_norm);
     let theta = cos_theta.acos();
 
     if orientation(a, b, c) == Orientation::Clockwise {

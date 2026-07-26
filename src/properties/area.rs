@@ -1,5 +1,4 @@
 use crate::elements::vertex::*;
-use nalgebra::Matrix3;
 use std::rc::Rc;
 
 pub fn area_segments(segments_list: &Vec<(Rc<Vertex>, Rc<Vertex>)>) -> f64 {
@@ -18,8 +17,20 @@ pub fn area_triangle(v1: &Vertex, v2: &Vertex, v3: &Vertex) -> f64 {
     let x3 = v3.x;
     let y3 = v3.y;
 
-    let matrix = Matrix3::new(x1, y1, 1.0, x2, y2, 1.0, x3, y3, 1.0);
-    return matrix.determinant() / 2.0;
+    // Signed area is half the determinant of
+    //
+    //     [x1 y1 1]
+    //     [x2 y2 1]
+    //     [x3 y3 1]
+    //
+    // expanded along the first row. The unit column makes two of the three 2x2
+    // minors collapse to plain differences.
+    //
+    // Note this is the rounded determinant, not an exact predicate: callers
+    // wanting only the *sign* of the area should use `orientation` instead,
+    // which is backed by robust::orient2d.
+    let determinant = x1 * (y2 - y3) - y1 * (x2 - x3) + (x2 * y3 - x3 * y2);
+    return determinant / 2.0;
 }
 
 #[cfg(test)]
