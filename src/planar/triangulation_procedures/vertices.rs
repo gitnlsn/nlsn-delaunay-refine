@@ -1,5 +1,5 @@
 use crate::elements::{edge::*, polyline::*, triangle::*, vertex::*};
-use crate::planar::{triangulation::*, triangulation_procedures};
+use crate::planar::triangulation::*;
 use crate::properties::continence::*;
 
 use std::collections::{HashMap, HashSet};
@@ -102,12 +102,17 @@ pub fn solve_conflicts(
             let edge: Rc<Edge> = pending_cavities.pop().unwrap();
             let edge_to_outer_triangle: Rc<Edge> = Rc::new(edge.opposite());
 
-            let outer_triangle: Rc<Triangle> = Rc::clone(
-                triangulation
-                    .adjacency
-                    .get(&edge_to_outer_triangle)
-                    .unwrap(),
-            );
+            // A missing adjacency entry means the cavity cannot be expanded
+            // across this edge -- the triangulation's edge-to-triangle map has
+            // gone inconsistent, which is reachable on degenerate input. Skip
+            // the edge and carry on: the cavity ends up slightly smaller than
+            // ideal, which costs mesh quality locally, whereas unwrapping costs
+            // the entire wasm instance.
+            let outer_triangle: Rc<Triangle> =
+                match triangulation.adjacency.get(&edge_to_outer_triangle) {
+                    Some(triangle) => Rc::clone(triangle),
+                    None => continue,
+                };
 
             let mut is_conflicting =
                 outer_triangle.encircles(&conflict_vertex) == Continence::Inside;
@@ -308,6 +313,7 @@ fn may_insert_triangle(
 #[cfg(test)]
 mod include_vertices {
     use super::*;
+    use crate::planar::triangulation_procedures;
 
     #[test]
     fn sample_1() {
@@ -509,7 +515,7 @@ mod may_insert_triangle {
         let v4 = Rc::new(Vertex::new(1.0, 5.0));
 
         /* hexagonal hole */
-        let v5 = Rc::new(Vertex::new(3.0, 2.0));
+        let _v5 = Rc::new(Vertex::new(3.0, 2.0));
         let v6 = Rc::new(Vertex::new(4.0, 2.0));
         // let v7 = Rc::new(Vertex::new(5.0, 3.0));
         let v8 = Rc::new(Vertex::new(4.0, 4.0));
@@ -639,6 +645,7 @@ mod distribute_conflicts {
 #[cfg(test)]
 mod distribute_conflicts_over_triangulation {
     use super::*;
+    use crate::planar::triangulation_procedures;
 
     #[test]
     fn sample_1() {

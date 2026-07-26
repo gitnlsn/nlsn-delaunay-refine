@@ -24,8 +24,17 @@ pub fn include(
         .iter()
         .filter(|t| !t.is_ghost())
         .filter(|triangle| {
-            let polyline = triangle.as_polyline().unwrap();
-            let segment_polyline = segment.as_polyline().unwrap();
+            // A degenerate triangle has no polyline representation. It encloses
+            // no area, so it cannot meaningfully conflict with the segment --
+            // and unwrapping here would abort the whole wasm instance.
+            let polyline = match triangle.as_polyline() {
+                Some(polyline) => polyline,
+                None => return false,
+            };
+            let segment_polyline = match segment.as_polyline() {
+                Some(polyline) => polyline,
+                None => return false,
+            };
 
             let contains_segment = Polyline::continence(&polyline, &segment_polyline)
                 != Some((Continence::Outside, BoundaryInclusion::Open));
@@ -73,8 +82,25 @@ pub fn include(
         triangulation.remove_triangle(conflicting_triangle);
     }
 
-    let triangles_boundary: Rc<Polyline> =
-        Rc::new(Polyline::triangles_hull(&conflicting_triangles).unwrap());
+    // The cavity carved out for this segment does not always have a well-formed
+    // hull: it can come back empty, or as a region that is not simply connected,
+    // in which case there is no single polyline around it. That is reachable on
+    // real input near sharp corners, so it must not be an unwrap -- a panic here
+    // aborts the wasm instance and kills the worker.
+    //
+    // Restoring the triangles first is essential. They were removed above in
+    // anticipation of retriangulating the cavity; abandoning that without
+    // putting them back would leave a hole in the mesh, which is a far worse
+    // failure than simply not recovering this one segment.
+    let triangles_boundary: Rc<Polyline> = match Polyline::triangles_hull(&conflicting_triangles) {
+        Some(hull) => Rc::new(hull),
+        None => {
+            for conflicting_triangle in conflicting_triangles.iter() {
+                triangulation.include_triangle(conflicting_triangle);
+            }
+            return;
+        }
+    };
 
     let conflicting_vertices: HashSet<Rc<Vertex>> = conflicting_triangles
         .iter()
