@@ -131,7 +131,9 @@ impl Polyline {
             let v2: &Rc<Vertex> = possible_vertices.get(index).unwrap();
             let v3: &Rc<Vertex> = possible_vertices.get(index + 1).unwrap();
 
-            if orientation(v1, v2, v3) != Orientation::Colinear {
+            // Collapsing collinear runs is a modelling decision, so it snaps
+            // near-collinear input rather than demanding exact collinearity.
+            if orientation_tol(v1, v2, v3, DEFAULT_COLINEAR_EPS) != Orientation::Colinear {
                 minified.push(Rc::clone(&v2));
             }
         }
@@ -175,7 +177,10 @@ impl Polyline {
                 continue;
             }
 
-            match orientation(&v1, &v2, vertex) {
+            // "Is this point on the domain boundary?" is an input-classification
+            // question, so a vertex placed fractionally off the boundary line
+            // still reads as on it.
+            match orientation_tol(&v1, &v2, vertex, DEFAULT_COLINEAR_EPS) {
                 Orientation::Colinear => {
                     return Some(Continence::Boundary);
                 }
@@ -1941,7 +1946,7 @@ mod arrange {
         .unwrap();
 
         let edges: HashSet<Rc<Edge>> = p1.into_edges().iter().cloned().collect();
-        let arranged_p1 = Polyline::arrange(&edges).unwrap();
+        let _arranged_p1 = Polyline::arrange(&edges).unwrap();
 
         assert_eq!(
             (12 + p1.vertices.iter().position(|v| v == &v2).unwrap()
@@ -2041,7 +2046,7 @@ mod arrange {
         .unwrap();
 
         let edges: HashSet<Rc<Edge>> = p1.into_edges().iter().cloned().collect();
-        let arranged_p1 = Polyline::arrange(&edges).unwrap();
+        let _arranged_p1 = Polyline::arrange(&edges).unwrap();
 
         assert_eq!(
             (8 + p1.vertices.iter().position(|v| v == &v2).unwrap()

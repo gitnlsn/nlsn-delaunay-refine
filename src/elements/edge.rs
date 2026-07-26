@@ -128,7 +128,12 @@ impl Edge {
             return false;
         }
 
-        if orientation(&self.v1, &self.v2, vertex) != Orientation::Colinear {
+        // Modelling question, not a topological one: "did the user put this
+        // vertex on this segment?". Uses the tolerant predicate so a vertex
+        // that is collinear in intent but not in exact f64 still splits the
+        // segment. The triangulation kernel keeps the exact predicate.
+        if orientation_tol(&self.v1, &self.v2, vertex, DEFAULT_COLINEAR_EPS) != Orientation::Colinear
+        {
             return false;
         }
 
@@ -185,6 +190,10 @@ impl Edge {
                         .collect();
 
                     for possible_next_tail in possible_next_tails.iter() {
+                        // Exact, deliberately. Chain reconstruction is topological:
+                        // snapping near-collinear joints here merges subsegments
+                        // that should stay distinct and yields degenerate triangles
+                        // downstream in try_circumcenter_insertion.
                         let is_colinear =
                             orientation(&head, &tail, &possible_next_tail) == Orientation::Colinear;
                         let is_forward = dot(&head, &tail, &tail, &possible_next_tail) > 0.0;
@@ -219,6 +228,7 @@ impl Edge {
                         .collect();
 
                     for possible_next_head in possible_next_heads {
+                        // Exact, for the same reason as the tail-extension case above.
                         let is_colinear =
                             orientation(&tail, &head, &possible_next_head) == Orientation::Colinear;
                         let is_forward = dot(&tail, &head, &head, &possible_next_head) > 0.0;
