@@ -7,7 +7,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::rc::Rc;
 
-#[derive(Hash, Debug)]
+#[derive(Debug)]
 pub struct Triangle {
     pub v1: Rc<Vertex>,
     pub v2: Rc<Vertex>,
@@ -23,6 +23,35 @@ impl PartialEq for Triangle {
 }
 
 impl Eq for Triangle {}
+
+/// Rotation-invariant, to match `PartialEq`.
+///
+/// `#[derive(Hash)]` hashed v1, v2, v3 in declaration order, while `PartialEq`
+/// treats the three cyclic rotations as the same triangle. That breaks the
+/// `Hash`/`Eq` contract: `(a, b, c)` and `(b, c, a)` compared equal but hashed
+/// differently, so a `HashSet<Rc<Triangle>>` looked for them in different
+/// buckets.
+///
+/// The damage was silent and severe. `Triangulation::remove_triangle` begins
+/// `if !self.triangles.contains(triangle) { return false; }`, so a rotated
+/// lookup simply failed to remove: the old element stayed in the mesh while its
+/// replacements were added alongside it. A single subdivision could double the
+/// meshed area.
+///
+/// Hashing starts from the lexicographically smallest corner and proceeds
+/// cyclically, which is invariant under rotation while still distinguishing a
+/// reflection -- `PartialEq` accepts the rotations but not `(v1, v3, v2)`.
+impl Hash for Triangle {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        let key = |v: &Vertex| (v.is_ghost, v.x.to_bits(), v.y.to_bits());
+        let keys = [key(&self.v1), key(&self.v2), key(&self.v3)];
+
+        let start = (0..3).min_by_key(|&i| keys[i]).unwrap_or(0);
+        for offset in 0..3 {
+            keys[(start + offset) % 3].hash(state);
+        }
+    }
+}
 
 impl fmt::Display for Triangle {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
