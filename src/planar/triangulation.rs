@@ -12,15 +12,15 @@ pub struct Triangulation {
 
 impl fmt::Display for Triangulation {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "Triangles\n");
+        write!(formatter, "Triangles\n")?;
         for triangle in self.triangles.iter() {
-            write!(formatter, "{}\n", triangle);
+            write!(formatter, "{}\n", triangle)?;
         }
-        write!(formatter, "\n");
+        write!(formatter, "\n")?;
 
-        write!(formatter, "Adjacency\n");
+        write!(formatter, "Adjacency\n")?;
         for (edge, triangle) in self.adjacency.iter() {
-            write!(formatter, "{} {}\n", edge, triangle);
+            write!(formatter, "{} {}\n", edge, triangle)?;
         }
 
         return write!(formatter, "");

@@ -1,6 +1,5 @@
 use crate::elements::{edge::*, polyline::*, triangle::*, vertex::*};
 use crate::planar::{triangulation::*, triangulation_procedures};
-use crate::properties::continence::Continence;
 
 use std::collections::HashSet;
 use std::rc::Rc;
@@ -113,6 +112,7 @@ pub fn include(
 #[cfg(test)]
 mod include_hole {
     use super::*;
+    use crate::properties::continence::Continence;
 
     #[test]
     fn sample_1() {

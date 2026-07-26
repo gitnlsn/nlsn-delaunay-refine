@@ -363,7 +363,7 @@ mod split {
         let splitable_segment = Rc::new(Edge::new(&v2, &v3));
         let midpoint = Rc::new(splitable_segment.midpoint());
 
-        let (h1, h2, included_triangles, removed_triangles) = split_segment(
+        let (h1, h2, _included_triangles, _removed_triangles) = split_segment(
             &mut triangulation,
             &splitable_segment,
             &HashSet::new(),
@@ -424,7 +424,7 @@ mod split {
         /* Inserts vertex at hole segment */
         let splittable_edge: Rc<Edge> = Rc::new(Edge::new(&v6, &v7));
         let midpoint = Rc::new(splittable_edge.midpoint());
-        let (h1, h2, included_triangles, removed_triangles) = split_segment(
+        let (h1, h2, _included_triangles, _removed_triangles) = split_segment(
             &mut triangulation,
             &splittable_edge,
             &HashSet::new(),
@@ -513,7 +513,7 @@ mod unencroach {
         );
 
         /* unencroach */
-        let (mapping, included_triangles, removed_triangles) = unencroach(
+        let (mapping, _included_triangles, _removed_triangles) = unencroach(
             &mut triangulation,
             &boundary.into_edges().iter().cloned().collect(),
             &Some(Rc::clone(&boundary)),
@@ -562,7 +562,7 @@ mod unencroach {
         );
 
         /* unencroach */
-        let (mapping, included_triangles, removed_triangles) = unencroach(
+        let (mapping, _included_triangles, _removed_triangles) = unencroach(
             &mut triangulation,
             &boundary.into_edges().iter().cloned().collect(),
             &Some(Rc::clone(&boundary)),
