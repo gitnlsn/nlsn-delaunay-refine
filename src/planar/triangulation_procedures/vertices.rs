@@ -1,6 +1,7 @@
 use crate::elements::{edge::*, polyline::*, triangle::*, vertex::*};
 use crate::planar::triangulation::*;
 use crate::properties::continence::*;
+use crate::properties::orientation::{orientation, Orientation};
 
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -175,8 +176,28 @@ pub fn solve_conflicts(
                 } else {
                     new_triangle = Rc::new(Triangle::new(&edge.v1, &edge.v2, &conflict_vertex));
                 }
-                triangulation.include_triangle(&new_triangle);
-                included_triangles.insert(Rc::clone(&new_triangle));
+                // A triangle whose three corners are exactly collinear has zero
+                // area and no circumcentre. Splitting a constrained segment
+                // repeatedly -- which is what refinement does along an awkward
+                // boundary -- leaves runs of collinear points on that segment,
+                // and retriangulating a cavity across them builds exactly this.
+                //
+                // Refusing cannot open a gap in the mesh: the element covers no
+                // area, so the region it nominally occupies is already covered
+                // by its neighbours. Admitting one corrupts the adjacency map
+                // instead, because its three edges are indistinguishable from
+                // the edges of the real triangles either side of it.
+                //
+                // Ghost triangles carry a synthetic vertex and are structural,
+                // so the test does not apply to them.
+                let is_degenerate = !new_triangle.is_ghost()
+                    && orientation(&new_triangle.v1, &new_triangle.v2, &new_triangle.v3)
+                        == Orientation::Colinear;
+
+                if !is_degenerate {
+                    triangulation.include_triangle(&new_triangle);
+                    included_triangles.insert(Rc::clone(&new_triangle));
+                }
 
                 distribute_conflicts(
                     &new_triangle,

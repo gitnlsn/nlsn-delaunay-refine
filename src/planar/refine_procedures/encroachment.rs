@@ -286,7 +286,7 @@ mod vertices_inclusion {
         /* Creates triangulation with boundary and hole */
         let mut triangulation = Triangulation::from_initial_segment((&v1, &v2));
         triangulation_procedures::boundary::include(&mut triangulation, &boundary, &HashSet::new());
-        triangulation_procedures::hole::include(&mut triangulation, &hole, &HashSet::new());
+        triangulation_procedures::hole::include(&mut triangulation, &hole, &HashSet::new(), &None, &HashSet::new());
 
         /* Inserts vertex at hole segment */
         let splittable_edge: Rc<Edge> = Rc::new(Edge::new(&v6, &v7));
@@ -419,7 +419,7 @@ mod split {
         /* Creates triangulation with boundary and hole */
         let mut triangulation = Triangulation::from_initial_segment((&v1, &v2));
         triangulation_procedures::boundary::include(&mut triangulation, &boundary, &HashSet::new());
-        triangulation_procedures::hole::include(&mut triangulation, &hole, &HashSet::new());
+        triangulation_procedures::hole::include(&mut triangulation, &hole, &HashSet::new(), &None, &HashSet::new());
 
         /* Inserts vertex at hole segment */
         let splittable_edge: Rc<Edge> = Rc::new(Edge::new(&v6, &v7));

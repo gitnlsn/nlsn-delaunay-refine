@@ -199,7 +199,11 @@ pub fn split_irregular(
             // The triangle has no circumcenter to insert. It was already
             // excluded from the bad-triangle sets, so simply move on rather
             // than unwrapping a None and taking the whole worker down.
-            InsertionOutcome::Degenerate => continue,
+            // Neither can be acted on: one has no circumcenter, the other has
+            // one that is not in the domain. Both were already taken out of the
+            // bad-triangle sets, so move on rather than queueing work that can
+            // never succeed.
+            InsertionOutcome::Degenerate | InsertionOutcome::OutsideDomain => continue,
 
             InsertionOutcome::Inserted {
                 included: included_triangles,
@@ -282,6 +286,40 @@ enum InsertionOutcome {
     },
     /// The triangle is degenerate and has no circumcenter.
     Degenerate,
+    /// The circumcenter lies outside the domain, so inserting it would create
+    /// elements where the domain isn't.
+    OutsideDomain,
+}
+
+/// Whether a point lies within the meshed domain.
+///
+/// Strict: a point reported as `Boundary` is not accepted. Inserting a vertex
+/// that sits on a boundary or hole edge produces zero-area elements against it,
+/// and the tolerant point-in-polygon test reports near-edge points that way, so
+/// strictness here is what catches circumcenters drifting out across a reflex
+/// corner.
+///
+/// Strictness is only affordable because the caller has a fallback: a rejected
+/// circumcenter causes the segments it encroaches to be split instead of
+/// refinement simply giving up.
+fn is_inside_domain(
+    vertex: &Vertex,
+    boundary: &Option<Rc<Polyline>>,
+    holes: &HashSet<Rc<Polyline>>,
+) -> bool {
+    if let Some(boundary) = boundary {
+        if boundary.contains(vertex) != Some(Continence::Inside) {
+            return false;
+        }
+    }
+
+    for hole in holes.iter() {
+        if hole.contains(vertex) != Some(Continence::Outside) {
+            return false;
+        }
+    }
+
+    true
 }
 
 /**
@@ -306,6 +344,45 @@ fn try_circumcenter_insertion(
         Some(circumcenter) => Rc::new(circumcenter),
         None => return InsertionOutcome::Degenerate,
     };
+
+    // A triangle's circumcenter is not required to lie inside the domain, and
+    // for an element sitting against a reflex corner it routinely does not.
+    // Inserting it regardless is how elements end up outside the boundary: the
+    // cavity is retriangulated around a point in a region that is not part of
+    // the domain, and every triangle built against it inherits that.
+    //
+    // Ruppert's algorithm rejects such a circumcenter rather than inserting it.
+    // Skipping leaves this element unrefined -- so quality near reflex corners
+    // stays worse than the target -- but the mesh remains a partition of the
+    // domain, which is the stronger guarantee.
+    if !is_inside_domain(&circumcenter, boundary, holes) {
+        // Ruppert's rule has two halves, and rejecting the circumcenter is only
+        // the first. The second is to split the constrained segments it
+        // encroaches instead -- which pulls the boundary discretisation finer
+        // exactly where the geometry is awkward, and lets the next pass find a
+        // circumcenter that does lie inside.
+        //
+        // Rejecting without the split is what made a strict domain test
+        // unusable: refinement declined the insertion, had no other move, and
+        // converged early. A plain unit square stopped at fewer than ten
+        // elements.
+        let encroached: HashSet<Rc<Edge>> = segment_constraints
+            .iter()
+            .filter(|edge| edge.encroach(&circumcenter) == Continence::Inside)
+            .cloned()
+            .collect();
+
+        if encroached.is_empty() {
+            // Nothing to split, so there is no way to make progress on this
+            // element. Leaving it unrefined keeps the mesh conformant.
+            return InsertionOutcome::OutsideDomain;
+        }
+
+        return InsertionOutcome::Encroached {
+            edges: encroached,
+            circumcenter,
+        };
+    }
 
     let mut conflict_map: HashMap<Rc<Triangle>, Vec<Rc<Vertex>>> = HashMap::new();
 
@@ -616,6 +693,9 @@ mod try_circumcenter_insertion {
             InsertionOutcome::Encroached { edges, .. } => assert!(edges.contains(&s2)),
             InsertionOutcome::Inserted { .. } => panic!("expected the circumcenter to encroach s2"),
             InsertionOutcome::Degenerate => panic!("triangle unexpectedly degenerate"),
+            InsertionOutcome::OutsideDomain => {
+                panic!("circumcenter unexpectedly outside the domain")
+            }
         }
     }
 }
