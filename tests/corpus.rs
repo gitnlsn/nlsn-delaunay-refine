@@ -206,18 +206,44 @@ fn notched_holds_invariants() {
 /// reflex corners. It is about coordinates that are not axis-aligned, which is
 /// every shape a user draws with a mouse.
 ///
-/// Ruled out so far:
-///   - missing boundary segment recovery (`boundary::include` has its recovery
-///     block commented out, but the unrefined mesh is correct regardless, so
-///     that is a separate latent issue rather than this one)
-///   - the degenerate-element refusal in `solve_conflicts` — the explosion
-///     persists without it (200,757 vs 262,840, same order of magnitude)
-///   - directed-edge overwrites in `Triangulation::include_triangle` —
-///     instrumented at zero
+/// Minimised. The smallest reproducer is a **three-vertex triangle rotated by
+/// 2 degrees**, failing at max_area 50. Exactly-axis-aligned shapes never fail;
+/// a rotation of 0.5 degrees is enough to break one. Not monotonic in the size
+/// of the perturbation, though: nudging one vertex by 0.001, 0.01 or 0.1 fails
+/// while 1.0 and 5.0 do not, so it is specific configurations rather than
+/// off-axis coordinates as such.
 ///
-/// Known and unexplained: the missing-adjacency guard in `solve_conflicts` is
-/// genuinely reached during these runs, so the edge-to-triangle map does go
-/// inconsistent. What corrupts it is still open, and is the thread to pull.
+/// Traced within a single run, checking total solid area after every refinement
+/// step. Refinement only ever subdivides, so that area must be invariant. Every
+/// break is the same operation:
+///
+///   AREA BREAK at step 28: 1560.00 -> 2754.38 (+1194.38)
+///     via Encroached(2 edges) on triangle quality 0.578
+///
+/// Always the segment-splitting path, never plain circumcenter insertion. The
+/// quality of 0.578 is ~1/sqrt(3), the minimum a triangle can have, so these
+/// are near-equilateral elements picked up for being too large rather than
+/// badly shaped.
+///
+/// The likely mechanism is in `split_segment` (`refine_procedures/encroachment.rs`).
+/// It deliberately removes the segment being split from the constraint set
+/// before inserting the midpoint, so that the two triangles adjacent to that
+/// segment can be absorbed into the cavity -- which is what the on-edge case
+/// requires. But the segment is a *boundary* segment, so for the duration of
+/// that insertion the domain boundary is not constrained, and the cavity is
+/// free to expand across it. `may_insert_triangle` is the only thing left
+/// holding the line, and its non-ghost test is a proxy: it asks whether the
+/// segment from a triangle's centroid to the new vertex stays inside the
+/// domain, not whether the resulting triangle does.
+///
+/// Ruled out:
+///   - missing boundary segment recovery (`boundary::include` has its recovery
+///     block commented out, which is a real latent bug, but the *unrefined*
+///     mesh is correct here so it is not this one)
+///   - the degenerate-element refusal in `solve_conflicts` -- the inflation
+///     persists without it (200,757 vs 262,840, same order of magnitude)
+///   - directed-edge overwrites in `Triangulation::include_triangle` --
+///     instrumented at zero
 #[test]
 #[ignore = "known: refinement inflates area on non-axis-aligned geometry"]
 fn drawn_arch_holds_invariants() {
