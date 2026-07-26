@@ -321,8 +321,32 @@ impl Triangulator {
             self.boundary.into_edges().iter().cloned().collect();
 
         /* 2 Holes inclusion */
-        for hole in self.holes.iter() {
-            triangulation_procedures::hole::include(&mut triangulation, hole, &segment_constraints);
+        //
+        // Ordered deterministically. `self.holes` is a HashSet, so iterating it
+        // directly means the holes are carved in a different order on every
+        // run, and each one is carved against a different partial domain.
+        let mut ordered_holes: Vec<Rc<Polyline>> = self.holes.iter().cloned().collect();
+        ordered_holes.sort_by_key(|hole| {
+            hole.vertices
+                .iter()
+                .map(|v| (v.x.to_bits(), v.y.to_bits()))
+                .min()
+        });
+
+        // Grown as we go, so each hole is carved knowing about the ones already
+        // removed -- without ever being told about itself.
+        let mut included_holes: HashSet<Rc<Polyline>> = HashSet::new();
+
+        for hole in ordered_holes.iter() {
+            triangulation_procedures::hole::include(
+                &mut triangulation,
+                hole,
+                &segment_constraints,
+                &Some(Rc::clone(&self.boundary)),
+                &included_holes,
+            );
+
+            included_holes.insert(Rc::clone(hole));
 
             segment_constraints = segment_constraints
                 .iter()

@@ -300,11 +300,16 @@ fn may_insert_triangle(
     }
 
     for hole in holes.iter() {
-        if let Some((continence, _)) = Polyline::continence(&hole, &p2) {
-            is_outside_holes = continence != Continence::Inside;
-        } else {
-            is_outside_holes = false;
-        }
+        // Accumulated, not assigned. This used to overwrite on every iteration,
+        // so only the last hole visited was ever enforced -- and `holes` is a
+        // HashSet, which means *which* hole that was varied between runs. A
+        // triangle sitting inside one hole was admitted as long as it was
+        // outside whichever hole happened to be visited last.
+        let outside_this_hole = match Polyline::continence(&hole, &p2) {
+            Some((continence, _)) => continence != Continence::Inside,
+            None => false,
+        };
+        is_outside_holes = is_outside_holes && outside_this_hole;
     }
 
     return is_inside_boundary && is_outside_holes;

@@ -7,10 +7,17 @@ use std::rc::Rc;
 /**
  * Include hole and returns included segments
  */
+/// Carves `hole` out of the triangulation.
+///
+/// `boundary` and `included_holes` describe the domain *as it already stands* —
+/// the outer boundary, and every hole carved before this one. They must not
+/// include `hole` itself, whose own vertices are being inserted here.
 pub fn include(
     triangulation: &mut Triangulation,
     hole: &Rc<Polyline>,
     segment_constraints: &HashSet<Rc<Edge>>,
+    boundary: &Option<Rc<Polyline>>,
+    included_holes: &HashSet<Rc<Polyline>>,
 ) {
     let hole_segments: HashSet<Rc<Edge>> = hole
         .into_edges()
@@ -19,12 +26,20 @@ pub fn include(
         .collect::<HashSet<Rc<Edge>>>();
 
     /* Inserts hole vertices */
+    //
+    // Constrained by the domain as it already stands. This used to pass `&None`
+    // and an empty hole set, i.e. no constraints at all, which is harmless for
+    // the first hole and wrong for every one after it: a carved hole's interior
+    // is covered by ghost triangles, and an unconstrained cavity expansion will
+    // happily consume them and put real elements back inside a hole that was
+    // already removed. With two holes that produced meshes covering several
+    // times the domain area.
     triangulation_procedures::vertices::include(
         triangulation,
         hole.vertices.iter().cloned().collect(),
         segment_constraints,
-        &None,
-        &HashSet::new(),
+        boundary,
+        included_holes,
     );
 
     let segment_constraints = segment_constraints
@@ -49,9 +64,24 @@ pub fn include(
     /* Inserts missing segments */
     loop {
         let existing_segments: HashSet<Rc<Edge>> = triangulation.edges();
+
+        // Deterministic, not `find` over the HashSet. Segment recovery is the
+        // most fragile path in the kernel -- it carves out and retriangulates a
+        // cavity -- and the order segments are recovered in changes the result.
+        // Taking whichever one the hasher surfaced first made hole inclusion
+        // vary between runs on identical input, including whether the resulting
+        // mesh was a valid partition of the domain at all.
         let missing_segment = hole_segments
             .iter()
-            .find(|&e| !existing_segments.contains(e));
+            .filter(|&e| !existing_segments.contains(e))
+            .min_by_key(|e| {
+                (
+                    e.v1.x.to_bits(),
+                    e.v1.y.to_bits(),
+                    e.v2.x.to_bits(),
+                    e.v2.y.to_bits(),
+                )
+            });
 
         if missing_segment.is_none() {
             break;
@@ -150,6 +180,8 @@ mod include_hole {
             &mut triangulation,
             &hole,
             &boundary.into_edges().iter().cloned().collect(),
+            &Some(Rc::clone(&boundary)),
+            &HashSet::new(),
         );
 
         let ghost_triangles: Vec<Rc<Triangle>> = triangulation
@@ -223,6 +255,8 @@ mod include_hole {
             &mut triangulation,
             &hole,
             &boundary.into_edges().iter().cloned().collect(),
+            &Some(Rc::clone(&boundary)),
+            &HashSet::new(),
         );
 
         let ghost_triangles: Vec<Rc<Triangle>> = triangulation
@@ -313,6 +347,8 @@ mod include_hole {
             &mut triangulation,
             &hole,
             &boundary.into_edges().iter().cloned().collect(),
+            &Some(Rc::clone(&boundary)),
+            &HashSet::new(),
         );
 
         let solid_triangles: Vec<Rc<Triangle>> = triangulation
