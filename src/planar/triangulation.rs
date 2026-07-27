@@ -1,4 +1,5 @@
 use crate::elements::{edge::*, triangle::*, vertex::*};
+use crate::planar::refine_procedures::trace::{corners_of, Event, Journal};
 
 use std::collections::{HashMap, HashSet};
 
@@ -8,6 +9,13 @@ use std::rc::Rc;
 pub struct Triangulation {
     pub triangles: HashSet<Rc<Triangle>>,
     pub adjacency: HashMap<Rc<Edge>, Rc<Triangle>>,
+    /// Records every mutation, when a caller has asked for one.
+    ///
+    /// `None` by default, which is the only state production ever sees. See
+    /// [`crate::planar::refine_procedures::trace`] for why the recording is
+    /// taken here rather than at the call sites: these two methods are the only
+    /// way the mesh can change, so nothing can act unobserved.
+    pub journal: Option<Journal>,
 }
 
 impl fmt::Display for Triangulation {
@@ -32,7 +40,30 @@ impl Triangulation {
         Self {
             triangles: HashSet::new(),
             adjacency: HashMap::new(),
+            journal: None,
         }
+    }
+
+    /// Starts recording every mutation from here on.
+    pub fn start_recording(&mut self) {
+        self.journal = Some(Journal::new());
+    }
+
+    /// Stops recording and returns what was recorded.
+    pub fn take_recording(&mut self) -> Option<Journal> {
+        self.journal.take()
+    }
+
+    /// Adds an entry to the recording, if one is being taken.
+    pub fn record(&mut self, event: Event) {
+        if let Some(journal) = self.journal.as_mut() {
+            journal.push(event);
+        }
+    }
+
+    /// The next step number, or `None` when nothing is being recorded.
+    pub fn next_step_index(&mut self) -> Option<usize> {
+        self.journal.as_mut().map(|j| j.next_step_index())
     }
 
     pub fn from_initial_segment((v1, v2): (&Rc<Vertex>, &Rc<Vertex>)) -> Self {
@@ -49,23 +80,48 @@ impl Triangulation {
 
     pub fn include_triangle(&mut self, triangle: &Rc<Triangle>) -> bool {
         if self.triangles.contains(triangle) {
+            // A no-op, and every caller discards the `false` that says so. It
+            // means an equal triangle was constructed a second time.
+            self.record(Event::Included {
+                corners: corners_of(triangle),
+                ghost: triangle.is_ghost(),
+                accepted: false,
+            });
             return false;
         }
         let (e12, e23, e31) = triangle.inner_edges();
         self.adjacency.insert(e12, Rc::clone(triangle));
         self.adjacency.insert(e23, Rc::clone(triangle));
         self.adjacency.insert(e31, Rc::clone(triangle));
+        self.record(Event::Included {
+            corners: corners_of(triangle),
+            ghost: triangle.is_ghost(),
+            accepted: true,
+        });
         return self.triangles.insert(Rc::clone(triangle));
     }
 
     pub fn remove_triangle(&mut self, triangle: &Rc<Triangle>) -> bool {
         if !self.triangles.contains(triangle) {
+            // The caller asked for this element to go and it did not. Every
+            // caller discards the `false`, so without the record this is
+            // invisible until the mesh is measured and found to cover too much.
+            self.record(Event::Removed {
+                corners: corners_of(triangle),
+                ghost: triangle.is_ghost(),
+                found: false,
+            });
             return false;
         }
         let (e12, e23, e31) = triangle.inner_edges();
         self.adjacency.remove(&e12);
         self.adjacency.remove(&e23);
         self.adjacency.remove(&e31);
+        self.record(Event::Removed {
+            corners: corners_of(triangle),
+            ghost: triangle.is_ghost(),
+            found: true,
+        });
         return self.triangles.remove(triangle);
     }
 

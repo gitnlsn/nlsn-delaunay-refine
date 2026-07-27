@@ -90,8 +90,15 @@ fn an_axis_aligned_square_meshes_the_same_way_every_time() {
 }
 
 /// The red half: the same square, rotated two degrees. Nothing else differs.
+///
+/// Passing since the last hash-order site closed. It was in `split_irregular`,
+/// which iterated the set of encroached segments straight out of a `HashSet` to
+/// decide which to split next -- and splitting one changes which of the others
+/// are still encroached and where their midpoints land, so that choice
+/// propagated through the whole refinement. `tests/stepwise.rs` located it by
+/// diffing two step logs: they agreed exactly up to the second segment split and
+/// disagreed on which segment it was.
 #[test]
-#[ignore = "one hash-order site remains: 6 runs in 8 agree, the other 2 differ"]
 fn a_rotated_square_meshes_the_same_way_every_time() {
     assert_repeatable("square", &SQUARE, 2.0, 12.0);
 }

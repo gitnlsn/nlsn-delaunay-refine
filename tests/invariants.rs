@@ -8,11 +8,20 @@
 //! The cheapest and most valuable one is area conservation: the element areas
 //! must sum to the area of the domain. A single number catches elements outside
 //! the boundary, elements inside holes, gaps, and overlaps -- all at once.
+//!
+//! This is a shared harness, pulled in with `mod invariants;` by several test
+//! binaries. Each one uses a different part of it, so every binary compiles the
+//! whole file and warns about whatever it did not call -- eleven warnings per
+//! build, none of them about a real problem. Allowed at the module level rather
+//! than per item, because "unused" here is a fact about one binary rather than
+//! about the code.
+#![allow(dead_code)]
 
 use nlsn_delaunay::elements::polyline::{vertex_pairs, Polyline};
 use nlsn_delaunay::elements::triangle::Triangle;
 use nlsn_delaunay::elements::vertex::Vertex;
 use nlsn_delaunay::planar::refine_params::{RefineOutcome, RefineParams};
+use nlsn_delaunay::planar::refine_procedures::trace::Journal;
 use nlsn_delaunay::planar::triangulator::Triangulator;
 use nlsn_delaunay::properties::area::{area_segments, area_triangle};
 use nlsn_delaunay::properties::continence::Continence;
@@ -144,6 +153,28 @@ impl Domain {
         min_angle_deg: f64,
         max_area: Option<f64>,
     ) -> (Triangulator, RefineOutcome) {
+        let (mut triangulator, params) = self.prepared(min_angle_deg, max_area);
+        let outcome = triangulator.refine(params);
+        (triangulator, outcome)
+    }
+
+    /// The mesh, the outcome, and a recording of every mutation refinement made.
+    ///
+    /// What `tests/stepwise.rs` checks its per-step laws against. The other
+    /// accessors above measure the finished mesh, which can say a mesh is wrong
+    /// but not which operation made it wrong.
+    pub fn mesh_traced(
+        &self,
+        min_angle_deg: f64,
+        max_area: Option<f64>,
+    ) -> (Triangulator, RefineOutcome, Journal) {
+        let (mut triangulator, params) = self.prepared(min_angle_deg, max_area);
+        let (outcome, journal) = triangulator.refine_traced(params);
+        (triangulator, outcome, journal)
+    }
+
+    /// Everything up to but not including refinement.
+    fn prepared(&self, min_angle_deg: f64, max_area: Option<f64>) -> (Triangulator, RefineParams) {
         let boundary = to_polyline(&self.boundary);
         let mut triangulator = Triangulator::new(&boundary);
 
@@ -160,9 +191,8 @@ impl Domain {
         // into swap along with it.
         params.max_steps = 20_000;
         params.max_triangles = 20_000;
-        let outcome = triangulator.refine(params);
 
-        (triangulator, outcome)
+        (triangulator, params)
     }
 }
 

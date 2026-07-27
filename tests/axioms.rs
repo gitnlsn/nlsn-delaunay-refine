@@ -114,11 +114,16 @@ fn equality_is_symmetric() {
 /// What survived from that attempt: bounds on the two unbounded recovery loops,
 /// which were a latent hang regardless and are now committed.
 ///
-/// So the remaining options are the ~190-site explicit-tolerance refactor, or
-/// snap rounding plus whatever is needed to make refinement converge under a
-/// resolution floor. Neither is a patch.
+/// **Resolved**, by the third of those approaches: quantise in `identity()`
+/// rather than in `Vertex::new`. Equality and hashing are both defined on the
+/// quantised coordinates, so equality is exact and therefore transitive, while
+/// the stored coordinates keep every bit they were computed with -- which is
+/// what the second attempt above got wrong and what made refinement stall under
+/// a resolution floor. See `elements/vertex.rs`.
+///
+/// The account above is kept because it is the record of what does *not* work,
+/// and the same two dead ends are easy to walk into again.
 #[test]
-#[ignore = "known: Vertex equality is approximate, therefore not transitive"]
 fn vertex_equality_is_transitive() {
     // Spacings and magnitudes chosen to straddle whatever the identity
     // resolution happens to be, so the law is tested rather than a particular
@@ -187,17 +192,20 @@ fn equal_edges_hash_equally() {
     assert_eq!(hash_of(&one), hash_of(&two));
 }
 
-/// KNOWN FAILURE — `Vertex` compares approximately but hashes exactly.
+/// `Vertex` must not compare equal to something it hashes differently from.
 ///
-/// Two vertices closer together than the epsilon compare equal while hashing
-/// from their raw bit patterns, so they land in different buckets. A lookup for
-/// one will not find the other.
+/// This was a failure for as long as equality was approximate and hashing was
+/// on raw bits: two vertices closer together than the epsilon compared equal
+/// while landing in different buckets, so a lookup for one would not find the
+/// other -- and `vertices::include` reads a missed lookup as "new" and inserts a
+/// second vertex a hair from the first.
 ///
-/// This is the same root cause as [`vertex_equality_is_transitive`] and has the
-/// same fix. It cannot be repaired on the hashing side: no hash function can be
-/// consistent with a non-transitive equality.
+/// Resolved with [`vertex_equality_is_transitive`], and by construction rather
+/// than by coincidence: both are now defined in terms of one `identity()`
+/// function, so they cannot drift apart. It could never have been repaired on
+/// the hashing side alone -- no hash function is consistent with a
+/// non-transitive equality.
 #[test]
-#[ignore = "known: Vertex hashes exact bits but compares approximately"]
 fn equal_vertices_hash_equally() {
     // Includes the pair that actually matters: the same geometric point reached
     // by two different routes, differing by one unit in the last place. That is

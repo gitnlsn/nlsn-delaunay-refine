@@ -1,4 +1,5 @@
 use crate::elements::{edge::*, polyline::*, triangle::*, vertex::*};
+use crate::planar::refine_procedures::trace::{Event, InsertSource, StepKind};
 use crate::planar::{sharp_corners, triangulation::*, triangulation_procedures};
 use crate::properties::continence::*;
 
@@ -38,19 +39,8 @@ pub fn unencroach(
             encroach_map
                 .keys()
                 .min_by(|a, b| {
-                    let key = |e: &Rc<Edge>| {
-                        let mut ends = [(e.v1.x, e.v1.y), (e.v2.x, e.v2.y)];
-                        ends.sort_by(|p, q| {
-                            p.0.partial_cmp(&q.0)
-                                .unwrap_or(std::cmp::Ordering::Equal)
-                                .then_with(|| {
-                                    p.1.partial_cmp(&q.1).unwrap_or(std::cmp::Ordering::Equal)
-                                })
-                        });
-                        ends
-                    };
-                    key(a)
-                        .partial_cmp(&key(b))
+                    a.ordering_key()
+                        .partial_cmp(&b.ordering_key())
                         .unwrap_or(std::cmp::Ordering::Equal)
                 })
                 .unwrap(),
@@ -242,6 +232,18 @@ fn split_segment(
     HashSet<Rc<Triangle>>,
     HashSet<Rc<Triangle>>,
 ) {
+    // One atomic mesh operation, so one step in the recording. Marked before the
+    // sharp-corner floor below, so a split that declines to act still appears --
+    // an empty step group is itself the answer to "why did nothing improve".
+    if let Some(index) = triangulation.next_step_index() {
+        triangulation.record(Event::Step {
+            index,
+            kind: StepKind::SegmentSplit {
+                segment: [(segment.v1.x, segment.v1.y), (segment.v2.x, segment.v2.y)],
+            },
+        });
+    }
+
     let segment_constraints: HashSet<Rc<Edge>> = segment_constraints
         .iter()
         .filter(|&e| e != segment && e != &Rc::new(segment.opposite()))
@@ -261,6 +263,7 @@ fn split_segment(
     // rounding the corner off or accepting the local quality. The corner is
     // reported so a caller can offer exactly that.
     if sharp_corners::is_at_floor(&segment.v1, &segment.v2, sharp_floors) {
+        triangulation.record(Event::Outcome("at sharp-corner floor".to_string()));
         return (
             Rc::clone(segment),
             Rc::clone(segment),
@@ -270,6 +273,11 @@ fn split_segment(
     }
 
     let segment_midpoint = Rc::new(segment.midpoint());
+
+    triangulation.record(Event::Insert {
+        vertex: (segment_midpoint.x, segment_midpoint.y),
+        source: InsertSource::SegmentMidpoint,
+    });
     let half_1 = Rc::new(Edge::new(&segment.v1, &segment_midpoint));
     let half_2 = Rc::new(Edge::new(&segment_midpoint, &segment.v2));
 

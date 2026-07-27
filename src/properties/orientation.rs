@@ -17,6 +17,27 @@ pub enum Orientation {
 /// determinant magnitude.
 pub const DEFAULT_COLINEAR_EPS: f64 = 1.0E-12;
 
+/// The tolerance at which a triangle is too thin to be an element.
+///
+/// Distinct from [`DEFAULT_COLINEAR_EPS`], and looser, because it answers a
+/// different question. That one asks whether three points were *meant* to lie on
+/// a line. This one asks whether the triangle they span is usable at all -- and
+/// a sliver of area 1e-30 is not exactly collinear, so an exact test admits it,
+/// yet it has no meaningful circumcentre, no meaningful angles, and a singular
+/// element matrix in any solver downstream.
+///
+/// Kept in one place because two separate decisions have to agree on it: the
+/// kernel refuses to *construct* such an element
+/// (`triangulation_procedures::vertices::solve_conflicts`) and the export
+/// refuses to *emit* one (`planar::mesh::FlatMesh`). They disagreed until now --
+/// the kernel testing exactly, the export tolerantly -- which meant the kernel
+/// built elements that the export then dropped. The damage was never visible in
+/// the output mesh, only in the adjacency map the kernel went on using.
+///
+/// Scale-invariant, being a bound on the sine of the apex angle, so it means the
+/// same thing whatever coordinates are in use.
+pub const DEGENERATE_ELEMENT_EPS: f64 = 1.0E-9;
+
 #[inline]
 fn coord(v: &Vertex) -> Coord<f64> {
     Coord { x: v.x, y: v.y }

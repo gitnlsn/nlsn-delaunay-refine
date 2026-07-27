@@ -21,35 +21,37 @@ pub fn rotated_triangle() -> Domain {
     }
 }
 
-/// KNOWN FAILURE — the minimal reproducer for refinement inflating the mesh.
+/// The minimal reproducer for refinement inflating the mesh. **Now passing.**
 ///
 /// A three-vertex triangle rotated by two degrees, refined to min angle 25 with
-/// max area 50. Exactly-axis-aligned shapes never fail; half a degree of
-/// rotation is enough. Not monotonic in the perturbation, so it is particular
+/// max area 50. Exactly-axis-aligned shapes never failed; half a degree of
+/// rotation was enough. Not monotonic in the perturbation, so it was particular
 /// configurations rather than off-axis coordinates as such.
 ///
 /// Traced to a single operation. Inserting a segment midpoint -- here at
-/// t = 1/8 along the bottom edge, after three successive splits -- removes one
-/// triangle from the cavity and creates three, for a net area gain of +682.5 on
+/// t = 1/8 along the bottom edge, after three successive splits -- removed one
+/// triangle from the cavity and created three, for a net area gain of +682.5 on
 /// a 1560 domain. Shewchuk's rule for this case is that splitting a segment
-/// splits the single triangle it bounds into two. Removing one and adding three
-/// that cover more area than the one removed means the new elements overlap
-/// elements that were never taken out.
+/// splits the single triangle it bounds into two.
 ///
-/// Ruled out, each by measurement rather than argument:
+/// The third element was the segment itself: a "triangle" of the segment's two
+/// endpoints and its midpoint, with zero area. It covered nothing, which is why
+/// area conservation could not see it and why the note below concluded the
+/// numbers did not add up. What it did was overwrite the two real halves'
+/// entries in the adjacency map.
+///
+/// Ruled out at the time, each by measurement rather than argument, and all
+/// still correct:
 ///   - elements escaping the domain: zero elements land outside the boundary
 ///     when the area jumps
 ///   - the same vertex being inserted twice in one call: instrumented, none
-///   - `Triangle`'s Hash/Eq contract violation: real and now fixed, but this
-///     fails identically with and without that fix
-///   - `Vertex`'s Hash/Eq violation (approx_eq equality against exact-bit
-///     hashing): making equality exact changes nothing here
+///   - `Triangle`'s Hash/Eq contract violation
+///   - `Vertex`'s Hash/Eq violation
 ///
-/// Next: instrument the cavity walk in `solve_conflicts` for this one insertion
-/// and find which cavity boundary edges produce triangles over ground that is
-/// still occupied.
+/// The next step recorded here -- "instrument the cavity walk in
+/// `solve_conflicts` for this one insertion" -- is what `tests/stepwise.rs` now
+/// does for every insertion, and is how this was closed.
 #[test]
-#[ignore = "known: refinement inflates area; minimal reproducer"]
 fn minimal_case_conserves_area() {
     let d = rotated_triangle();
     let t = d.mesh(25.0, Some(50.0));

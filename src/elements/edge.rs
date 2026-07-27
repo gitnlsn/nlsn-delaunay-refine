@@ -53,6 +53,27 @@ impl Edge {
         return distance(&self.v1, &self.v2);
     }
 
+    /// A total ordering key that does not depend on hashing.
+    ///
+    /// Edges are held in `HashSet`s throughout the kernel, and Rust seeds every
+    /// hasher differently per process, so iterating one to decide *which edge to
+    /// act on next* hands that decision to the hasher and makes the output mesh
+    /// differ between runs on identical input. Anywhere a set of edges is
+    /// consumed as a work list, sort by this first.
+    ///
+    /// Endpoints are sorted, so an edge and its opposite key identically -- the
+    /// two directions are the same segment, and which one a caller happens to
+    /// hold must not change the order.
+    pub fn ordering_key(&self) -> [(f64, f64); 2] {
+        let mut ends = [(self.v1.x, self.v1.y), (self.v2.x, self.v2.y)];
+        ends.sort_by(|a, b| {
+            a.0.partial_cmp(&b.0)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+        });
+        ends
+    }
+
     pub fn encroach(&self, vertex: &Vertex) -> Continence {
         return encroach(&self.v1, &self.v2, vertex);
     }

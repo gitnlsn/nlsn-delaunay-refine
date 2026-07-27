@@ -1,4 +1,5 @@
 use crate::elements::{edge::*, polyline::*, vertex::*};
+use crate::planar::refine_procedures::trace::Journal;
 use crate::planar::{refine_params::*, triangulation::*};
 use crate::properties::continence::*;
 
@@ -272,6 +273,28 @@ impl Triangulator {
     /// Returns how refinement terminated. Callers driving a UI should surface
     /// [`RefineOutcome::terminated_early`], because the mesh is still valid in
     /// that case but does not meet the requested quality everywhere.
+    /// Refines, and returns a recording of every mutation it made.
+    ///
+    /// The recording is what `tests/stepwise.rs` checks its laws against. It is
+    /// a separate entry point rather than a parameter on [`RefineParams`] so
+    /// that no production caller can switch it on by accident: the browser path
+    /// calls [`Self::refine`], which never allocates a journal.
+    ///
+    /// Recording starts after `triangulate()` has run, so the events describe
+    /// refinement alone. That is deliberate -- an initial triangulation that is
+    /// already wrong is a different bug, and `tests/corpus.rs` covers it by
+    /// checking `mesh_unrefined()` against the same invariants.
+    pub fn refine_traced(&mut self, params: RefineParams) -> (RefineOutcome, Journal) {
+        self.triangulation.borrow_mut().start_recording();
+        let outcome = self.refine(params);
+        let journal = self
+            .triangulation
+            .borrow_mut()
+            .take_recording()
+            .expect("recording was started immediately above");
+        (outcome, journal)
+    }
+
     pub fn refine(&mut self, params: RefineParams) -> RefineOutcome {
         let mut segment_constraints: HashSet<Rc<Edge>> = self
             .holes

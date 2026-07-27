@@ -168,12 +168,15 @@ fn triangle_quality_is_invariant_under_rotation() {
 /// error: it concludes the vertex is new and inserts a *second* one a hair away
 /// from the first, and the sliver between them is what shows up on screen.
 ///
-/// Axis-aligned input hides it because the midpoint of an exactly representable
-/// pair is itself exactly representable, so the recomputed vertex is bit
-/// identical and any hash finds it.
+/// Axis-aligned input hid it because the midpoint of an exactly representable
+/// pair is itself exactly representable, so the recomputed vertex was bit
+/// identical and any hash found it. Five of the seven rotations below did not.
+///
+/// Passing since `Vertex` began deciding identity by quantising rather than by
+/// comparing with a tolerance. Kept un-ignored: this is the law that refactor
+/// exists to satisfy, so it is worth failing loudly if identity is ever changed
+/// back to something that is not an equivalence relation.
 #[test]
-#[ignore = "known bug: Vertex compares with a tolerance but hashes raw bits (task #10). \
-            Proven here: 5 of 7 rotations put the same geometric point in two buckets."]
 fn a_recomputed_vertex_is_found_in_a_set() {
     let mut misses = Vec::new();
 

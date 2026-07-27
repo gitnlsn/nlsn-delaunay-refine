@@ -1,7 +1,10 @@
 use crate::elements::{edge::*, polyline::*, triangle::*, vertex::*};
+use crate::planar::refine_procedures::trace::{corners_of, Event};
 use crate::planar::triangulation::*;
 use crate::properties::continence::*;
-use crate::properties::orientation::{orientation, Orientation};
+use crate::properties::orientation::{
+    orientation, orientation_tol, Orientation, DEGENERATE_ELEMENT_EPS,
+};
 
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
@@ -278,7 +281,15 @@ pub fn solve_conflicts(
             let outer_triangle: Rc<Triangle> =
                 match triangulation.adjacency.get(&edge_to_outer_triangle) {
                     Some(triangle) => Rc::clone(triangle),
-                    None => continue,
+                    None => {
+                        triangulation.record(Event::AdjacencyMissing {
+                            edge: [
+                                (edge_to_outer_triangle.v1.x, edge_to_outer_triangle.v1.y),
+                                (edge_to_outer_triangle.v2.x, edge_to_outer_triangle.v2.y),
+                            ],
+                        });
+                        continue;
+                    }
                 };
 
             let mut is_conflicting =
@@ -342,29 +353,63 @@ pub fn solve_conflicts(
                 } else {
                     new_triangle = Rc::new(Triangle::new(&edge.v1, &edge.v2, &conflict_vertex));
                 }
-                // A triangle whose three corners are exactly collinear has zero
-                // area and no circumcentre. Splitting a constrained segment
-                // repeatedly -- which is what refinement does along an awkward
-                // boundary -- leaves runs of collinear points on that segment,
-                // and retriangulating a cavity across them builds exactly this.
+                // A triangle whose three corners are collinear has no area and no
+                // circumcentre. This is not a rare degeneracy: it is what the
+                // fan produces whenever the inserted point lies on a rim edge of
+                // the cavity, which is exactly what splitting a boundary segment
+                // at its midpoint does. The two halves of the split already tile
+                // the region completely -- `tests/stepwise.rs` measures 195 + 195
+                // against the 390 removed -- so this third element is pure
+                // surplus, and refusing it cannot open a gap.
                 //
-                // Refusing cannot open a gap in the mesh: the element covers no
-                // area, so the region it nominally occupies is already covered
-                // by its neighbours. Admitting one corrupts the adjacency map
-                // instead, because its three edges are indistinguishable from
-                // the edges of the real triangles either side of it.
+                // Admitting one corrupts `Triangulation::adjacency` instead. Its
+                // three edges are the same edges as the real halves', so the map
+                // ends up pointing at a zero-area element, and every later cavity
+                // walk that crosses the boundary there reads a lie.
+                //
+                // Tolerant rather than exact, and this is the whole of the
+                // difference between axis-aligned input and hand-drawn input.
+                // Points along an axis-aligned segment are exactly
+                // representable, so their midpoints are too, and the run of them
+                // left by repeated splitting is *exactly* collinear -- the exact
+                // predicate returns zero and this refuses. Turn the same shape a
+                // quarter of a degree and the identical run of points is only
+                // collinear to within rounding: the exact predicate reports a
+                // genuine turn of about 1e-16, and the element is admitted. The
+                // geometry is the same geometry; only its representation moved.
+                //
+                // Shares its bound with the export, which drops the same
+                // elements on the way out. See `DEGENERATE_ELEMENT_EPS`.
                 //
                 // Ghost triangles carry a synthetic vertex and are structural,
                 // so the test does not apply to them.
                 let is_degenerate = !new_triangle.is_ghost()
-                    && orientation(&new_triangle.v1, &new_triangle.v2, &new_triangle.v3)
-                        == Orientation::Colinear;
+                    && orientation_tol(
+                        &new_triangle.v1,
+                        &new_triangle.v2,
+                        &new_triangle.v3,
+                        DEGENERATE_ELEMENT_EPS,
+                    ) == Orientation::Colinear;
 
-                if !is_degenerate {
-                    triangulation.include_triangle(&new_triangle);
-                    included_triangles.insert(Rc::clone(&new_triangle));
+                if is_degenerate {
+                    triangulation.record(Event::Refused {
+                        corners: corners_of(&new_triangle),
+                    });
+                    continue;
                 }
 
+                triangulation.include_triangle(&new_triangle);
+                included_triangles.insert(Rc::clone(&new_triangle));
+
+                // Only ever called for a triangle that is now in the
+                // triangulation. `distribute_conflicts` files the triangle as a
+                // *key* in the conflict map, and the loop above picks its cavity
+                // seed from those keys -- so distributing against a refused
+                // triangle hands the next insertion a seed that does not exist,
+                // whose `remove_triangle` silently does nothing and whose edges
+                // resolve against an adjacency map that has never heard of them.
+                // That is why tightening the guard above made the mesh worse
+                // before this line moved.
                 distribute_conflicts(
                     &new_triangle,
                     conflict_map,
@@ -488,6 +533,29 @@ fn may_insert_triangle(
 ) -> bool {
     let p2: Polyline;
     if triangle.is_ghost() {
+        // The point lies on this ghost's own hull edge.
+        //
+        // That is not an edge case, it is what splitting a boundary segment at
+        // its midpoint looks like from out here, and the answer is trivially
+        // yes: the point is on the boundary, so nothing built against it can
+        // leave the domain, and the ghost *must* be absorbed so that it splits
+        // in two along with the segment.
+        //
+        // Answered before the polyline below is built, because that polyline
+        // would be `[v1, v2, target]` with all three collinear -- a closed loop
+        // with no interior. Every probe point `Polyline::continence` takes from
+        // it lands on the boundary, so it can reach no verdict and returns
+        // `None`, which this function reads as "may not insert". The ghost was
+        // then left unsplit, nothing owned the directed edge from the midpoint
+        // to the far endpoint, and the next cavity walk to reach that edge found
+        // no neighbour and built nothing against it -- a gap the size of one
+        // element, on the boundary, exactly where hand-drawn geometry showed
+        // them. `tests/stepwise.rs` traces the chain.
+        let outer_edge = Edge::new(&triangle.v1, &triangle.v2);
+        if outer_edge.contains(target_vertex) {
+            return true;
+        }
+
         p2 = Polyline::new_closed(vec![
             Rc::clone(&triangle.v1),
             Rc::clone(&triangle.v2),

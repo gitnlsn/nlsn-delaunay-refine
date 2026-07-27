@@ -294,8 +294,11 @@ fn notched_holds_invariants() {
 ///     persists without it (200,757 vs 262,840, same order of magnitude)
 ///   - directed-edge overwrites in `Triangulation::include_triangle` --
 ///     instrumented at zero
+/// Passing since the four defects behind the inflation were closed; see
+/// `tests/stepwise.rs::every_step_on_a_rotated_triangle_is_lawful` for the
+/// chain. This fixture went from covering 2237% of its domain to conserving
+/// area, which is the single number that best measures those fixes.
 #[test]
-#[ignore = "known: refinement inflates area on non-axis-aligned geometry"]
 fn drawn_arch_holds_invariants() {
     run(&drawn_arch());
 }
@@ -334,11 +337,19 @@ fn drawn_arch_holds_invariants() {
 ///   - directed-edge overwrites in `Triangulation::include_triangle` —
 ///     instrumented at zero
 ///
-/// Known and unexplained: the missing-adjacency guard in `solve_conflicts` is
-/// genuinely reached during these runs, so the edge-to-triangle map does go
-/// inconsistent. What corrupts it is still open, and is the thread to pull.
+/// That last note was the thread, and pulling it is what closed this class. The
+/// map went inconsistent because a boundary segment could be split without its
+/// ghost being split alongside it, leaving the edge from the new midpoint
+/// unowned -- see `tests/stepwise.rs`, which reports it as `NO NEIGHBOUR` at the
+/// step that causes it rather than as a symptom thousands of steps later.
+///
+/// **Unverified since those fixes.** The two fixtures above now pass, and this
+/// one no longer fails the way its title says -- but it did not finish inside a
+/// minute of a debug run, so whether it passes is genuinely unknown rather than
+/// known-bad. It meshes every corpus fixture at every quality target, so it is
+/// the most expensive test here by a wide margin; run it in release.
 #[test]
-#[ignore = "known: refinement inflates area on non-axis-aligned geometry"]
+#[ignore = "unverified since the ghost-splitting fix, and slow: run in release"]
 fn jittered_variants_hold_invariants() {
     for domain in corpus() {
         run(&domain.jittered());
@@ -360,7 +371,6 @@ fn convex_pentagon_holds_invariants() {
 /// Swept rather than spot-checked: the same shape meshes cleanly at 0.4% while
 /// failing either side of it, so a single target proves nothing.
 #[test]
-#[ignore = "known bug: hash-order-dependent cavity seed, see tests/determinism_matrix.rs"]
 fn rotated_quad_holds_invariants_across_area_targets() {
     let domain = rotated_quad();
     for max_area in [100.0, 40.0, 25.0] {

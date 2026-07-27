@@ -13,14 +13,7 @@
 
 use crate::elements::triangle::Triangle;
 use crate::planar::triangulation::Triangulation;
-use crate::properties::orientation::{orientation_tol, Orientation};
-
-/// Sliver threshold for dropping an element from the export.
-///
-/// Effectively a bound on `sin` of the smallest angle, so this rejects anything
-/// below roughly 6e-8 degrees. Far tighter than any usable element, and far
-/// looser than exact collinearity.
-const DEGENERATE_ELEMENT_EPS: f64 = 1.0E-9;
+use crate::properties::orientation::{orientation_tol, Orientation, DEGENERATE_ELEMENT_EPS};
 
 use std::cmp::Ordering;
 use std::collections::HashMap;

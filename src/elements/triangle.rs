@@ -96,7 +96,28 @@ impl Triangle {
                in counterclockwise direction. The first two vertices have the outer
                space in counterclockwise direction, as the ghost is always outside.
             */
-            match orientation(&self.v1, &self.v2, &vertex) {
+            // Tolerant rather than exact, and deliberately unlike the solid case
+            // above.
+            //
+            // A ghost has no circumcircle; this stands in for one, and what it
+            // is really asking is which side of the hull the point falls on.
+            // That is a modelling question about the hull, not a topological one
+            // about a circle, and the points it is asked about are routinely
+            // collinear with the hull edge by construction: every midpoint
+            // inserted along a boundary segment lies on the line of every other
+            // subsegment of that same segment.
+            //
+            // With the exact predicate those points came back `Counterclockwise`
+            // or `Clockwise` on a residual of about 1e-16 -- zero only when the
+            // segment happened to be axis-aligned and the coordinates exactly
+            // representable. A stray `Inside` makes the cavity absorb ghosts
+            // belonging to *other* subsegments, and the hull then heals over the
+            // vertices between them: three ghosts go in and two come out, one of
+            // them spanning a chord. The boundary vertices it skipped no longer
+            // own their edges, and the next cavity walk to reach one finds no
+            // neighbour. `tests/stepwise.rs` shows this as `NO NEIGHBOUR` on a
+            // subsegment, with a gap the size of one element behind it.
+            match orientation_tol(&self.v1, &self.v2, &vertex, DEGENERATE_ELEMENT_EPS) {
                 Orientation::Counterclockwise => return Continence::Inside,
                 Orientation::Clockwise => return Continence::Outside,
                 Orientation::Colinear => return Continence::Boundary,

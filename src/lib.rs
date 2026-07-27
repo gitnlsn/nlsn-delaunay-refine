@@ -42,6 +42,7 @@ pub mod planar {
     }
     pub mod refine_procedures {
         pub mod encroachment;
+        pub mod trace;
         pub mod triangle_split;
     }
 }
