@@ -15,31 +15,97 @@ pub struct Vertex {
     pub is_ghost: bool,
 }
 
-impl Hash for Vertex {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        let (m, e, s) = Float::integer_decode(self.x);
-        m.hash(state);
-        e.hash(state);
-        s.hash(state);
+/// How many of the 52 mantissa bits are dropped when a coordinate is stored.
+///
+/// This is the resolution at which two coordinates are considered the same
+/// point. It is expressed in mantissa bits rather than as an absolute distance
+/// so that it is *relative*: a grid of 1e-14 absolute means nothing above
+/// coordinate ~1e2, where the spacing between representable `f64` already
+/// exceeds it, and snapping silently becomes a no-op. That is what defeated the
+/// previous attempt at this.
+///
+/// Twelve bits leaves a resolution of 2^-40, about 9e-13 relative. Against a
+/// mesh that subdivides to perhaps 1e-3 of its domain, that is some nine orders
+/// of magnitude of headroom, so it cannot put a floor under refinement.
+const MANTISSA_BITS_DROPPED: u32 = 12;
 
-        let (m, e, s) = Float::integer_decode(self.y);
-        m.hash(state);
-        e.hash(state);
-        s.hash(state);
+/// Rounds a coordinate onto the grid described above.
+///
+/// Idempotent, which matters because `eq` and `hash` both apply it: a value
+/// already on the grid has its low bits clear, so adding half a step and masking
+/// returns it unchanged.
+///
+/// Works on the magnitude and reapplies the sign, rather than on the raw bit
+/// pattern, so that carrying out of the mantissa cannot walk into the sign bit.
+fn quantise(value: f64) -> f64 {
+    if value == 0.0 {
+        // Folds -0.0 into +0.0. They are numerically equal but differ in bits,
+        // which would otherwise be exactly the defect this is here to remove.
+        return 0.0;
+    }
+    if !value.is_finite() {
+        return value;
+    }
 
-        self.is_ghost.hash(state);
+    let half = 1u64 << (MANTISSA_BITS_DROPPED - 1);
+    let mask = !((1u64 << MANTISSA_BITS_DROPPED) - 1);
+
+    let rounded = f64::from_bits((value.abs().to_bits().saturating_add(half)) & mask);
+    if !rounded.is_finite() {
+        return value;
+    }
+
+    if value.is_sign_negative() {
+        -rounded
+    } else {
+        rounded
     }
 }
 
+/// The identity of a vertex: what `eq` compares and what `hash` hashes.
+///
+/// Both are defined in terms of this single function, which is what makes the
+/// `Hash`/`Eq` contract hold by construction rather than by two implementations
+/// happening to agree.
+///
+/// All ghosts are one vertex, so their coordinates are not part of their
+/// identity.
+fn identity(vertex: &Vertex) -> (bool, u64, u64) {
+    if vertex.is_ghost {
+        return (true, 0, 0);
+    }
+    (
+        false,
+        quantise(vertex.x).to_bits(),
+        quantise(vertex.y).to_bits(),
+    )
+}
+
+impl Hash for Vertex {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        identity(self).hash(state);
+    }
+}
+
+/// Exact equality on quantised coordinates.
+///
+/// The previous implementation compared with `approx_eq!` at 1e-14 while `Hash`
+/// hashed raw bits, which broke the contract two ways. Two vertices closer than
+/// the epsilon compared equal and landed in different buckets, so
+/// `HashSet::contains` reported a vertex absent while an equal one was present
+/// -- and `vertices::include` reads that as "new" and inserts a *second* vertex
+/// a hair from the first. Worse, approximate equality is not transitive at any
+/// tolerance, so it was not an equivalence relation and could not lawfully back
+/// `Eq` at all.
+///
+/// Quantising first restores both properties: equality is exact, so it agrees
+/// with the hash by construction, and it is transitive because it is equality on
+/// a grid. It keeps the tolerant behaviour that the mesher depends on, since the
+/// same geometric point reached by two different routes -- a circumcentre and a
+/// midpoint, say -- lands on the same grid cell.
 impl PartialEq for Vertex {
     fn eq(&self, other: &Self) -> bool {
-        if self.is_ghost && other.is_ghost {
-            return true;
-        }
-
-        return self.is_ghost == other.is_ghost
-            && float_cmp::approx_eq!(f64, self.x, other.x, epsilon = 1.0E-14f64)
-            && float_cmp::approx_eq!(f64, self.y, other.y, epsilon = 1.0E-14f64)
+        identity(self) == identity(other)
     }
 }
 
@@ -47,23 +113,25 @@ impl Eq for Vertex {}
 
 impl Ord for Vertex {
     fn cmp(&self, other: &Self) -> Ordering {
-        if self.is_ghost && other.is_ghost {
-            return Ordering::Equal;
+        // Ghosts are ordered first, and compared before coordinates. Comparing
+        // coordinates alone reported a ghost as `Equal` to a real vertex at the
+        // origin, which would contradict the equality above.
+        match (self.is_ghost, other.is_ghost) {
+            (true, true) => return Ordering::Equal,
+            (true, false) => return Ordering::Less,
+            (false, true) => return Ordering::Greater,
+            (false, false) => {}
         }
 
-        if self.x > other.x {
-            return Ordering::Greater;
-        } else if self.x < other.x {
-            return Ordering::Less;
-        } else {
-            if self.y > other.y {
-                return Ordering::Greater;
-            } else if self.y < other.y {
-                return Ordering::Less;
-            } else {
-                return Ordering::Equal;
-            }
-        }
+        // On the quantised values, so that ordering agrees with equality.
+        quantise(self.x)
+            .partial_cmp(&quantise(other.x))
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| {
+                quantise(self.y)
+                    .partial_cmp(&quantise(other.y))
+                    .unwrap_or(Ordering::Equal)
+            })
     }
 }
 
@@ -83,10 +151,15 @@ impl fmt::Display for Vertex {
 }
 
 impl Vertex {
+    /// Coordinates are rounded onto the identity grid here, so that every
+    /// vertex in the mesh is already canonical. `new` is the single funnel for
+    /// non-ghost vertices -- `Edge::midpoint`, `Triangle::center` and
+    /// `properties::circumcenter` all route through it -- so this is the one
+    /// place it has to happen.
     pub fn new(x: f64, y: f64) -> Self {
         Self {
-            x: x,
-            y: y,
+            x: quantise(x),
+            y: quantise(y),
             is_ghost: false,
         }
     }

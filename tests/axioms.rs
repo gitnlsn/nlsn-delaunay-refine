@@ -120,14 +120,40 @@ fn equality_is_symmetric() {
 #[test]
 #[ignore = "known: Vertex equality is approximate, therefore not transitive"]
 fn vertex_equality_is_transitive() {
-    let a = Vertex::new(0.0, 0.0);
-    let b = Vertex::new(0.8e-14, 0.0);
-    let c = Vertex::new(1.6e-14, 0.0);
+    // Spacings and magnitudes chosen to straddle whatever the identity
+    // resolution happens to be, so the law is tested rather than a particular
+    // tolerance. The previous version of this test hard-coded an absolute 1e-14
+    // as its premise -- "a and b are within the epsilon" -- which made it a test
+    // of one implementation instead of the law.
+    let magnitudes = [0.0, 1.0, 50.0, 1.0E5];
+    let steps = [0.0, 1.0E-18, 1.0E-16, 1.0E-14, 1.0E-12, 1.0E-10, 1.0E-6];
 
-    assert_eq!(a, b, "a and b are within the epsilon");
-    assert_eq!(b, c, "b and c are within the epsilon");
-    assert_eq!(a, c, "so a and c must be equal too — but they are not");
+    let mut equal_pairs_seen = 0;
+
+    for base in magnitudes {
+        for step in steps {
+            let a = Vertex::new(base, 0.0);
+            let b = Vertex::new(base + step, 0.0);
+            let c = Vertex::new(base + 2.0 * step, 0.0);
+
+            if a == b && b == c {
+                equal_pairs_seen += 1;
+                assert_eq!(
+                    a, c,
+                    "at magnitude {} with step {}: a == b and b == c, so a == c must follow",
+                    base, step
+                );
+            }
+        }
+    }
+
+    // Otherwise the loop above could pass by never finding two equal vertices.
+    assert!(
+        equal_pairs_seen > 0,
+        "no two vertices compared equal, so transitivity was never exercised"
+    );
 }
+
 
 // ---------------------------------------------------------------------------
 // The Hash/Eq contract: equal values must hash equally
@@ -173,11 +199,47 @@ fn equal_edges_hash_equally() {
 #[test]
 #[ignore = "known: Vertex hashes exact bits but compares approximately"]
 fn equal_vertices_hash_equally() {
-    let a = Vertex::new(0.0, 0.0);
-    let b = Vertex::new(0.5e-14, 0.0);
+    // Includes the pair that actually matters: the same geometric point reached
+    // by two different routes, differing by one unit in the last place. That is
+    // what the mesher produces when refinement inserts a circumcentre where
+    // segment splitting has already inserted a midpoint.
+    let one_ulp_apart = {
+        let base = 3.0435184466843834_f64;
+        (base, f64::from_bits(base.to_bits() + 1))
+    };
 
-    assert_eq!(a, b, "within the epsilon, so equal");
-    assert_eq!(hash_of(&a), hash_of(&b), "equal values must hash equally");
+    let mut pairs: Vec<(f64, f64)> = vec![one_ulp_apart];
+    for base in [0.0, 1.0, 50.0, 1.0E5] {
+        for step in [0.0, 1.0E-18, 1.0E-16, 1.0E-14, 1.0E-12] {
+            pairs.push((base, base + step));
+        }
+    }
+
+    let mut equal_pairs_seen = 0;
+
+    for (x1, x2) in pairs {
+        let a = Vertex::new(x1, 0.0);
+        let b = Vertex::new(x2, 0.0);
+
+        if a != b {
+            continue;
+        }
+
+        equal_pairs_seen += 1;
+        assert_eq!(
+            hash_of(&a),
+            hash_of(&b),
+            "({}, 0) and ({}, 0) compare equal, so they must hash equally -- \
+             otherwise a HashSet reports one absent while the other is present",
+            x1,
+            x2
+        );
+    }
+
+    assert!(
+        equal_pairs_seen > 0,
+        "no two vertices compared equal, so the law was never exercised"
+    );
 }
 
 // ---------------------------------------------------------------------------
