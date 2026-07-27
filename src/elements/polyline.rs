@@ -91,7 +91,16 @@ impl Polyline {
             hash_edges.insert(Rc::clone(&edge.v1), Rc::clone(&edge.v2));
         }
 
-        let head: Rc<Vertex> = Rc::clone(hash_edges.keys().next().unwrap());
+        // Smallest by coordinate rather than whichever the hasher offers. The
+        // loop this walks is the same either way, but it comes out rotated to a
+        // different starting vertex, and callers that index into the result see
+        // a different polyline for the same geometry.
+        let head: Rc<Vertex> = Rc::clone(
+            hash_edges
+                .keys()
+                .min_by(|a, b| a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal).then_with(|| a.y.partial_cmp(&b.y).unwrap_or(std::cmp::Ordering::Equal)))
+                .unwrap(),
+        );
         let mut tail: Rc<Vertex> = Rc::clone(&head);
         arranged_vertices.push(Rc::clone(&head));
 
@@ -344,7 +353,18 @@ impl Polyline {
             /* Builds polylines */
             while !possible_segments.is_empty() {
                 let mut possible_polyline_intersection: Vec<(Rc<Vertex>, Rc<Vertex>)> = Vec::new();
-                let (h1, h2) = possible_segments.iter().next().unwrap();
+                // Deterministic: the loop this seeds assembles a polyline from an
+            // unordered set of segments, so the segment it starts from decides
+            // where the resulting loop begins and in what order loops come out.
+            let (h1, h2) = possible_segments
+                .iter()
+                .min_by(|(a1, a2), (b1, b2)| {
+                    let key = |v1: &Rc<Vertex>, v2: &Rc<Vertex>| (v1.x, v1.y, v2.x, v2.y);
+                    key(a1, a2)
+                        .partial_cmp(&key(b1, b2))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .unwrap();
                 let h1 = Rc::clone(h1);
                 let h2 = Rc::clone(h2);
                 possible_polyline_intersection.push(possible_segments.take(&(h1, h2)).unwrap());
@@ -467,7 +487,18 @@ impl Polyline {
         while !possible_segments.is_empty() {
             /* Begins union polyline build */
             let mut possible_polyline_union: Vec<(Rc<Vertex>, Rc<Vertex>)> = Vec::new();
-            let (h1, h2) = possible_segments.iter().next().unwrap();
+            // Deterministic: the loop this seeds assembles a polyline from an
+            // unordered set of segments, so the segment it starts from decides
+            // where the resulting loop begins and in what order loops come out.
+            let (h1, h2) = possible_segments
+                .iter()
+                .min_by(|(a1, a2), (b1, b2)| {
+                    let key = |v1: &Rc<Vertex>, v2: &Rc<Vertex>| (v1.x, v1.y, v2.x, v2.y);
+                    key(a1, a2)
+                        .partial_cmp(&key(b1, b2))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .unwrap();
             let h1 = Rc::clone(h1);
             let h2 = Rc::clone(h2);
             possible_polyline_union.push(possible_segments.take(&(h1, h2)).unwrap());
@@ -655,7 +686,18 @@ impl Polyline {
         /* Builds polylines */
         while !possible_segments.is_empty() {
             let mut possible_polyline_subtraction: Vec<(Rc<Vertex>, Rc<Vertex>)> = Vec::new();
-            let (h1, h2) = possible_segments.iter().next().unwrap();
+            // Deterministic: the loop this seeds assembles a polyline from an
+            // unordered set of segments, so the segment it starts from decides
+            // where the resulting loop begins and in what order loops come out.
+            let (h1, h2) = possible_segments
+                .iter()
+                .min_by(|(a1, a2), (b1, b2)| {
+                    let key = |v1: &Rc<Vertex>, v2: &Rc<Vertex>| (v1.x, v1.y, v2.x, v2.y);
+                    key(a1, a2)
+                        .partial_cmp(&key(b1, b2))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .unwrap();
             let h1 = Rc::clone(h1);
             let h2 = Rc::clone(h2);
             possible_polyline_subtraction.push(possible_segments.take(&(h1, h2)).unwrap());
@@ -850,7 +892,19 @@ impl Polyline {
 
         let mut boundary_edges: HashMap<Rc<Edge>, Rc<Edge>> = HashMap::new();
         while !aux_segments.is_empty() {
-            let possible_segment = Rc::clone(aux_segments.iter().next().unwrap());
+            // Deterministic: this walks the hull of a triangle set, and the
+            // starting edge decides where the resulting loop begins.
+            let possible_segment = Rc::clone(
+                aux_segments
+                    .iter()
+                    .min_by(|a, b| {
+                        let key = |e: &Rc<Edge>| (e.v1.x, e.v1.y, e.v2.x, e.v2.y);
+                        key(a)
+                            .partial_cmp(&key(b))
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    })
+                    .unwrap(),
+            );
             aux_segments.remove(&possible_segment);
 
             if boundary_edges.contains_key(&possible_segment) {

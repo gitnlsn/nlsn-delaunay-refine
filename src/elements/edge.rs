@@ -166,9 +166,26 @@ impl Edge {
 
         let mut arranged_edges: HashSet<Rc<Edge>> = HashSet::new();
         while !head_tail_hashmap.is_empty() {
-            let (head, tail_vertices) = head_tail_hashmap.iter().next().unwrap();
+            // Both ends chosen deterministically. Arranging a set of edges into
+            // chains gives the same chains whichever end it starts from, but
+            // rotated and in a different order, and that propagates into the
+            // meshes built from them.
+            let (head, tail_vertices) = head_tail_hashmap
+                .iter()
+                .min_by(|(a, _), (b, _)| {
+                    a.x.partial_cmp(&b.x)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                        .then_with(|| a.y.partial_cmp(&b.y).unwrap_or(std::cmp::Ordering::Equal))
+                })
+                .unwrap();
             let mut head = Rc::clone(&head);
-            let mut tail = Rc::clone(tail_vertices.borrow().iter().next().unwrap());
+            let mut tail = Rc::clone(
+                tail_vertices
+                    .borrow()
+                    .iter()
+                    .min_by(|a, b| a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal).then_with(|| a.y.partial_cmp(&b.y).unwrap_or(std::cmp::Ordering::Equal)))
+                    .unwrap(),
+            );
 
             remove_edge(
                 &mut head_tail_hashmap,

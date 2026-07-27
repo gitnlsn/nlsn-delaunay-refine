@@ -31,7 +31,30 @@ pub fn unencroach(
     );
 
     while !encroach_map.is_empty() {
-        let encroached_edge = Rc::clone(encroach_map.keys().next().unwrap());
+        // Deterministic rather than hash order. Which encroached segment is
+        // split first changes what encroaches next, so this choice propagates
+        // through the whole refinement.
+        let encroached_edge = Rc::clone(
+            encroach_map
+                .keys()
+                .min_by(|a, b| {
+                    let key = |e: &Rc<Edge>| {
+                        let mut ends = [(e.v1.x, e.v1.y), (e.v2.x, e.v2.y)];
+                        ends.sort_by(|p, q| {
+                            p.0.partial_cmp(&q.0)
+                                .unwrap_or(std::cmp::Ordering::Equal)
+                                .then_with(|| {
+                                    p.1.partial_cmp(&q.1).unwrap_or(std::cmp::Ordering::Equal)
+                                })
+                        });
+                        ends
+                    };
+                    key(a)
+                        .partial_cmp(&key(b))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .unwrap(),
+        );
         let mut encroaching_vertices = encroach_map.remove(&encroached_edge).unwrap();
 
         let (new_edges, new_triangles, old_triangles) = unencroach_segment(

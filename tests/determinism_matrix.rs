@@ -36,14 +36,25 @@ fn rotate(points: &[[f64; 2]], degrees: f64) -> Vec<[f64; 2]> {
 
 /// Element count and total area, which together identify a mesh closely enough
 /// that two different meshes are very unlikely to agree on both.
-fn signature(domain: &Domain, max_area: f64) -> (usize, String) {
-    let t = domain.mesh(25.0, Some(max_area));
+fn signature(domain: &Domain, max_area: f64) -> (usize, String, String) {
+    let (t, outcome) = domain.mesh_with_outcome(25.0, Some(max_area));
     let triangles = solid_triangles(&t);
-    let area: f64 = triangles
+
+    // Summed in sorted order. Floating point addition is not associative, so
+    // summing straight out of a `HashSet` makes the total depend on iteration
+    // order -- and this file would then report the instrument's own
+    // non-determinism as the mesher's.
+    let mut areas: Vec<f64> = triangles
         .iter()
         .map(|x| area_triangle(&x.v1, &x.v2, &x.v3).abs())
-        .sum();
-    (triangles.len(), format!("{:.9}", area))
+        .collect();
+    areas.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+    (
+        triangles.len(),
+        format!("{:.9}", areas.iter().sum::<f64>()),
+        format!("{:?}", outcome),
+    )
 }
 
 fn assert_repeatable(label: &str, base: &[[f64; 2]], degrees: f64, max_area: f64) {
@@ -53,8 +64,8 @@ fn assert_repeatable(label: &str, base: &[[f64; 2]], degrees: f64, max_area: f64
         holes: vec![],
     };
 
-    let runs: Vec<(usize, String)> = (0..8).map(|_| signature(&domain, max_area)).collect();
-    let distinct: std::collections::HashSet<&(usize, String)> = runs.iter().collect();
+    let runs: Vec<(usize, String, String)> = (0..8).map(|_| signature(&domain, max_area)).collect();
+    let distinct: std::collections::HashSet<&(usize, String, String)> = runs.iter().collect();
 
     assert_eq!(
         distinct.len(),
@@ -80,15 +91,16 @@ fn an_axis_aligned_square_meshes_the_same_way_every_time() {
 
 /// The red half: the same square, rotated two degrees. Nothing else differs.
 #[test]
-#[ignore = "known bug: hash-order-dependent cavity seed makes the mesher non-deterministic"]
+#[ignore = "one hash-order site remains: 6 runs in 8 agree, the other 2 differ"]
 fn a_rotated_square_meshes_the_same_way_every_time() {
     assert_repeatable("square", &SQUARE, 2.0, 12.0);
 }
 
 /// A quarter of a degree is enough. Included because the natural assumption is
 /// that a bug this large needs badly conditioned geometry, and it does not.
+///
+/// Passing since the cavity seed became deterministic and containment-based.
 #[test]
-#[ignore = "known bug: hash-order-dependent cavity seed makes the mesher non-deterministic"]
 fn a_barely_rotated_square_meshes_the_same_way_every_time() {
     assert_repeatable("square", &SQUARE, 0.25, 12.0);
 }

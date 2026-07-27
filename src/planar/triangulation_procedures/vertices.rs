@@ -3,6 +3,7 @@ use crate::planar::triangulation::*;
 use crate::properties::continence::*;
 use crate::properties::orientation::{orientation, Orientation};
 
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
@@ -24,7 +25,27 @@ pub fn include(
         .collect();
 
     let mut conflict_map: HashMap<Rc<Triangle>, Vec<Rc<Vertex>>> = HashMap::new();
-    for possible_triangle in triangulation.triangles.iter() {
+
+    // Ordered rather than taken as the hasher gives them. `distribute_conflicts`
+    // files each vertex under the first triangle that claims it, so the walk
+    // order decides the contents of the conflict map.
+    let mut candidates: Vec<Rc<Triangle>> = triangulation.triangles.iter().cloned().collect();
+    candidates.sort_by(|a, b| {
+        let key = |t: &Rc<Triangle>| {
+            let mut corners = [(t.v1.x, t.v1.y), (t.v2.x, t.v2.y), (t.v3.x, t.v3.y)];
+            corners.sort_by(|p, q| {
+                p.0.partial_cmp(&q.0)
+                    .unwrap_or(Ordering::Equal)
+                    .then_with(|| p.1.partial_cmp(&q.1).unwrap_or(Ordering::Equal))
+            });
+            corners
+        };
+        a.is_ghost()
+            .cmp(&b.is_ghost())
+            .then_with(|| key(a).partial_cmp(&key(b)).unwrap_or(Ordering::Equal))
+    });
+
+    for possible_triangle in candidates.iter() {
         if vertices.is_empty() {
             break;
         }
@@ -46,6 +67,119 @@ pub fn include(
         holes,
     );
 } /* end - include vertices method */
+
+/// The next vertex to insert: the smallest by coordinate, over every vertex the
+/// conflict map holds.
+///
+/// Deterministic on purpose. Selecting with `conflict_map.keys().next()` handed
+/// the choice to the hasher, and Rust seeds every `HashMap` differently, so the
+/// same request produced a different mesh on every call.
+fn next_vertex(conflict_map: &HashMap<Rc<Triangle>, Vec<Rc<Vertex>>>) -> Option<Rc<Vertex>> {
+    conflict_map
+        .values()
+        .flatten()
+        .min_by(|a, b| {
+            a.x.partial_cmp(&b.x)
+                .unwrap_or(Ordering::Equal)
+                .then_with(|| a.y.partial_cmp(&b.y).unwrap_or(Ordering::Equal))
+        })
+        .cloned()
+}
+
+/// Whether a point lies inside a triangle, or on its border.
+///
+/// Uses the exact orientation predicate, which `tests/alignment_axioms.rs`
+/// establishes is invariant under rotation -- so this answers the same way
+/// wherever the shape sits relative to the axes. A point is inside when it is on
+/// the same side of all three directed edges; `Colinear` counts as either side,
+/// which is what admits points lying on an edge.
+fn triangle_contains(triangle: &Rc<Triangle>, vertex: &Rc<Vertex>) -> bool {
+    if triangle.is_ghost() {
+        return false;
+    }
+
+    let sides = [
+        orientation(&triangle.v1, &triangle.v2, vertex),
+        orientation(&triangle.v2, &triangle.v3, vertex),
+        orientation(&triangle.v3, &triangle.v1, vertex),
+    ];
+
+    let any_clockwise = sides.iter().any(|s| *s == Orientation::Clockwise);
+    let any_counterclockwise = sides.iter().any(|s| *s == Orientation::Counterclockwise);
+
+    !(any_clockwise && any_counterclockwise)
+}
+
+/// The triangle to grow the cavity from, for a given vertex.
+///
+/// Candidates are restricted to triangles the conflict map lists this vertex
+/// under, which is what guarantees the seed genuinely conflicts with the point.
+/// Widening the search to the whole triangulation was tried and is wrong: on a
+/// triangulation that is still only an initial segment there are no solid
+/// triangles at all, so the containment search finds nothing, and any fallback
+/// outside the conflicting set removes a triangle that should have stayed --
+/// which left the insertion building nothing.
+///
+/// Among those candidates, the one *containing* the point is preferred. That is
+/// Bowyer-Watson's precondition: growing the cavity from the triangle the point
+/// lies in is what makes it star-shaped about the point, and so what makes the
+/// fan built against it valid rather than folded over itself.
+fn seed_triangle(
+    conflict_map: &HashMap<Rc<Triangle>, Vec<Rc<Vertex>>>,
+    vertex: &Rc<Vertex>,
+) -> Option<Rc<Triangle>> {
+    let key = |triangle: &Rc<Triangle>| {
+        let mut corners = [
+            (triangle.v1.x, triangle.v1.y),
+            (triangle.v2.x, triangle.v2.y),
+            (triangle.v3.x, triangle.v3.y),
+        ];
+        corners.sort_by(|a, b| {
+            a.0.partial_cmp(&b.0)
+                .unwrap_or(Ordering::Equal)
+                .then_with(|| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal))
+        });
+        corners
+    };
+
+    let candidates: Vec<&Rc<Triangle>> = conflict_map
+        .iter()
+        .filter(|(_, vertices)| vertices.iter().any(|held| **held == **vertex))
+        .map(|(triangle, _)| triangle)
+        .collect();
+
+    let containing = candidates
+        .iter()
+        .filter(|triangle| triangle_contains(triangle, vertex))
+        .min_by(|a, b| key(a).partial_cmp(&key(b)).unwrap_or(Ordering::Equal))
+        .map(|triangle| Rc::clone(triangle));
+
+    if containing.is_some() {
+        return containing;
+    }
+
+    let distance_to = |triangle: &Rc<Triangle>| {
+        let centre = triangle.center();
+        (centre.x - vertex.x).powi(2) + (centre.y - vertex.y).powi(2)
+    };
+
+    candidates
+        .iter()
+        .min_by(|a, b| {
+            // Solid triangles first: a ghost carries a synthetic corner, so its
+            // centre is not a position in the domain and says nothing about how
+            // near it is.
+            a.is_ghost()
+                .cmp(&b.is_ghost())
+                .then_with(|| {
+                    distance_to(a)
+                        .partial_cmp(&distance_to(b))
+                        .unwrap_or(Ordering::Equal)
+                })
+                .then_with(|| key(a).partial_cmp(&key(b)).unwrap_or(Ordering::Equal))
+        })
+        .map(|triangle| Rc::clone(triangle))
+}
 
 /**
  * Implements Bowyer-Watson incremental insersion using conflict map.
@@ -79,13 +213,45 @@ pub fn solve_conflicts(
         //     println!();
         // }
 
+        // Which vertex to insert, and which triangle to open the cavity from,
+        // are chosen deliberately rather than taken from hash order.
+        //
+        // Bowyer-Watson wants the cavity grown from the triangle *containing*
+        // the point. That is what makes the cavity star-shaped about it, and so
+        // what makes retriangulating it against the point produce a valid fan.
+        // Growing from an arbitrary triangle that merely conflicts with some
+        // vertex is safe in an unconstrained Delaunay triangulation, where the
+        // conflicting set is connected -- but here `may_insert_triangle` and the
+        // segment constraints prune it, so the walk could start in a component
+        // nowhere near the point. The fan then folds over itself, which is where
+        // the overlapping elements and the inflated area came from.
+        let conflict_vertex: Rc<Vertex> = match next_vertex(conflict_map) {
+            Some(vertex) => vertex,
+            None => break,
+        };
+
         let next_conflicting_triangle: Rc<Triangle> =
-            Rc::clone(conflict_map.keys().next().unwrap());
+            match seed_triangle(conflict_map, &conflict_vertex) {
+                Some(triangle) => triangle,
+                None => break,
+            };
 
-        let mut conflicting_vertices: Vec<Rc<Vertex>> =
-            conflict_map.remove(&next_conflicting_triangle).unwrap();
-
-        let conflict_vertex: Rc<Vertex> = conflicting_vertices.pop().unwrap();
+        // The vertex may be filed under a different triangle than the one the
+        // cavity opens from, so it is taken out wherever it sits.
+        let mut conflicting_vertices: Vec<Rc<Vertex>> = conflict_map
+            .remove(&next_conflicting_triangle)
+            .unwrap_or_default();
+        // Compared by value, not by pointer. The same geometric vertex can be
+        // held as more than one `Rc` -- the conflict map is built by walking
+        // triangles, and a vertex reached twice arrives as two handles -- so a
+        // pointer comparison would leave a copy behind, and the loop would
+        // insert it again on the next pass. `Vertex` now has a lawful identity,
+        // so value equality is the right test.
+        conflicting_vertices.retain(|vertex| **vertex != *conflict_vertex);
+        for vertices in conflict_map.values_mut() {
+            vertices.retain(|vertex| **vertex != *conflict_vertex);
+        }
+        conflict_map.retain(|_, vertices| !vertices.is_empty());
 
         triangulation.remove_triangle(&next_conflicting_triangle);
         removed_triangles.insert(Rc::clone(&next_conflicting_triangle));
@@ -266,7 +432,31 @@ pub fn distribute_conflicts_over_triangulation(
         visited_triangles.insert(Rc::clone(&initial_triangle));
         pending_triangles.push(Rc::clone(&initial_triangle));
     } else {
-        let initial_triangle = triangulation.triangles.iter().next().unwrap();
+        // Deterministic rather than whichever the hasher surfaces: this is the
+        // seed of a breadth-first walk, so it decides which triangle claims each
+        // vertex in the conflict map, and through that which cavities open.
+        let initial_triangle = triangulation
+            .triangles
+            .iter()
+            .min_by(|a, b| {
+                let key = |t: &Rc<Triangle>| {
+                    let mut corners = [
+                        (t.v1.x, t.v1.y),
+                        (t.v2.x, t.v2.y),
+                        (t.v3.x, t.v3.y),
+                    ];
+                    corners.sort_by(|p, q| {
+                        p.0.partial_cmp(&q.0)
+                            .unwrap_or(Ordering::Equal)
+                            .then_with(|| p.1.partial_cmp(&q.1).unwrap_or(Ordering::Equal))
+                    });
+                    corners
+                };
+                a.is_ghost()
+                    .cmp(&b.is_ghost())
+                    .then_with(|| key(a).partial_cmp(&key(b)).unwrap_or(Ordering::Equal))
+            })
+            .unwrap();
         visited_triangles.insert(Rc::clone(&initial_triangle));
         pending_triangles.push(Rc::clone(&initial_triangle));
     }

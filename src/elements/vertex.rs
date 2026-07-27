@@ -31,9 +31,9 @@ const MANTISSA_BITS_DROPPED: u32 = 12;
 
 /// Rounds a coordinate onto the grid described above.
 ///
-/// Idempotent, which matters because `eq` and `hash` both apply it: a value
-/// already on the grid has its low bits clear, so adding half a step and masking
-/// returns it unchanged.
+/// Applied only when deciding identity, never to the stored coordinate. Two
+/// vertices in the same cell are the same vertex; both keep their own exact
+/// values, and the mesh keeps whichever it saw first.
 ///
 /// Works on the magnitude and reapplies the sign, rather than on the raw bit
 /// pattern, so that carrying out of the mantissa cannot walk into the sign bit.
@@ -151,15 +151,17 @@ impl fmt::Display for Vertex {
 }
 
 impl Vertex {
-    /// Coordinates are rounded onto the identity grid here, so that every
-    /// vertex in the mesh is already canonical. `new` is the single funnel for
-    /// non-ghost vertices -- `Edge::midpoint`, `Triangle::center` and
-    /// `properties::circumcenter` all route through it -- so this is the one
-    /// place it has to happen.
+    /// Coordinates are stored exactly as computed.
+    ///
+    /// Rounding them here was tried and is wrong: the grid exists to decide
+    /// *identity*, and applying it to the stored value perturbs the geometry
+    /// itself by up to half a step for no benefit -- enough to move a midpoint
+    /// off 0.6 in the thirteenth decimal, which the predicates then work from.
+    /// Quantisation belongs in `identity`, and nowhere else.
     pub fn new(x: f64, y: f64) -> Self {
         Self {
-            x: quantise(x),
-            y: quantise(y),
+            x: x,
+            y: y,
             is_ghost: false,
         }
     }
